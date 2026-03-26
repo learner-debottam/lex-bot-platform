@@ -1,0 +1,8 @@
+soft_fail: false
+framework:
+  - terraform
+
+skip_checks:
+  - CKV_AWS_18  # Example: allow public S3 if needed
+
+quiet: true

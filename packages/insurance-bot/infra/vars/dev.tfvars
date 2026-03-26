@@ -1,0 +1,1 @@
+lambda_artifacts_bucket = "my-lambda-artifacts-dev"
