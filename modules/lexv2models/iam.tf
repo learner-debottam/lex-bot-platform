@@ -1,32 +1,33 @@
 # ============================================================================
 # AWS Lex V2 – IAM Role & Permissions Setup
 # ============================================================================
-# This file defines all IAM resources required for the Lex V2 bot to operate.
+# Resource Summary Table:
+# ----------------------------------------------------------------------------
+# | Resource Type                  | Name / Identifier                    | Purpose & Notes                                    |
+# |--------------------------------|-------------------------------------|-----------------------------------------------------|
+# | data.aws_iam_policy_document    | lex_trust_relationship             | Trust policy allowing Lex V2 service to assume role |
+# | aws_iam_role                    | lex_role                           | Core IAM role for Lex V2 bot                        |
+# | data.aws_iam_policy_document    | allow_synthesize_speech            | Defines permissions for Amazon Polly TTS            |
+# | aws_iam_policy                  | allow_synthesize_speech            | IAM policy for Polly TTS                            |
+# | aws_iam_role_policy_attachment  | allow_synthesize_speech            | Attaches Polly policy to Lex role                   |
+# | data.aws_iam_policy_document    | allow_lex_cloudwatch_logging       | CloudWatch logging permissions                      |
+# | aws_iam_policy                  | allow_lex_cloudwatch_logging       | IAM policy for CloudWatch logging                   |
+# | aws_iam_role_policy_attachment  | allow_lex_cloudwatch_logging       | Attaches CloudWatch policy to Lex role              |
+# | data.aws_iam_policy_document    | allow_invoke_lambdas (dynamic)     | Lambda invocation permissions (conditional)         |
+# | aws_iam_policy                  | allow_invoke_lambdas (dynamic)     | IAM policy for Lambda invocation                    |
+# | aws_iam_role_policy_attachment  | allow_invoke_lambdas (dynamic)     | Attaches Lambda policy to Lex role                  |
 #
-# It includes:
-# - Trust relationship allowing Lex to assume the role
-# - Core IAM role used by the bot
-# - Policies for:
-#     • Text-to-speech via Amazon Polly
-#     • CloudWatch logging for observability
-#     • Optional Lambda invocation for fulfillment hooks
-#
-# Design Principles:
-# - Least privilege access (only required permissions granted)
-# - Modular and dynamic (Lambda permissions only created when needed)
-# - Fully taggable for governance and cost tracking
-#
-# NOTE:
-# - Managed policy (AmazonLexFullAccess) is intentionally NOT used to avoid
-#   over-permissioning. Instead, fine-grained policies are defined below.
+# Notes:
+# - Lambda permissions are created only if var.lambda_arns contains ARNs.
+# - All resources are taggable via var.tags.
+# - Fine-grained permissions are used instead of broad managed policies.
 # ============================================================================
 
 # ============================================================================
-# Trust Relationship (Lex Service → IAM Role)
+# Trust Relationship: Lex V2 → IAM Role
 # ============================================================================
-# Allows AWS Lex V2 service (lexv2.amazonaws.com) to assume this IAM role.
-# This is mandatory for Lex bots to function.
-
+# Allows the Lex V2 service (lexv2.amazonaws.com) to assume this IAM role.
+# Mandatory for any Lex bot to function.
 data "aws_iam_policy_document" "lex_trust_relationship" {
   statement {
     effect = "Allow"
@@ -39,12 +40,12 @@ data "aws_iam_policy_document" "lex_trust_relationship" {
 }
 
 # ============================================================================
-# Trust Relationship (Lex Service → IAM Role)
+# IAM Role for Lex V2 Bot
 # ============================================================================
-# Allows AWS Lex V2 service (lexv2.amazonaws.com) to assume this IAM role.
-# This is mandatory for Lex bots to function.
+# Defines the core IAM role that Lex V2 will assume.
+# Supports tags and extended session duration.
 resource "aws_iam_role" "lex_role" {
-  name                 = var.lexv2_bot_role_name // "${local.bot_name}-lex-role"
+  name                 = var.lexv2_bot_role_name
   assume_role_policy   = data.aws_iam_policy_document.lex_trust_relationship.json
   tags                 = var.tags
   max_session_duration = 43200
@@ -53,9 +54,8 @@ resource "aws_iam_role" "lex_role" {
 # ============================================================================
 # Polly Permissions (Text-to-Speech)
 # ============================================================================
-# Enables Lex to convert text responses into speech using Amazon Polly.
-# Required when voice responses are configured.
-
+# Grants Lex permission to synthesize speech using Amazon Polly.
+# Required if the bot is configured with voice responses.
 data "aws_iam_policy_document" "allow_synthesize_speech" {
   statement {
     sid    = "LexActions"
@@ -83,12 +83,8 @@ resource "aws_iam_role_policy_attachment" "allow_synthesize_speech" {
 # ============================================================================
 # CloudWatch Logging Permissions
 # ============================================================================
-# Allows Lex to:
-# - Create log groups
-# - Create log streams
-# - Push logs to CloudWatch
-#
-# This is essential for debugging, monitoring, and production observability.
+# Enables Lex to create log groups, create log streams, and push logs to
+# CloudWatch. Essential for debugging, monitoring, and production observability.
 data "aws_iam_policy_document" "allow_lex_cloudwatch_logging" {
   statement {
     sid    = "AllowLexCloudWatchLogging"
@@ -118,12 +114,8 @@ resource "aws_iam_role_policy_attachment" "allow_lex_cloudwatch_logging" {
 # ============================================================================
 # Lambda Invocation Permissions (Dynamic)
 # ============================================================================
-# Grants Lex permission to invoke Lambda functions used for:
-# - Fulfillment code hooks
-# - Validation logic
-#
-# This block is conditionally created ONLY if Lambda ARNs are provided.
-# This keeps the module flexible and avoids unnecessary permissions.
+# Grants Lex permission to invoke Lambda functions for fulfillment or validation.
+# Created only if Lambda ARNs are provided to avoid unnecessary permissions.
 data "aws_iam_policy_document" "allow_invoke_lambdas" {
   count = length(var.lambda_arns) > 0 ? 1 : 0
 

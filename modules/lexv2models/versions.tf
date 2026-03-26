@@ -1,22 +1,16 @@
 # ============================================================================
-# Terraform Provider Configuration
+# Terraform Configuration
 # ============================================================================
-# Defines the required providers for this module.
+# Provider Requirements:
+# ----------------------------------------------------------------------------
+# | Provider | Source           | Version Constraint          | Notes                                |
+# |----------|-----------------|----------------------------|--------------------------------------|
+# | aws      | hashicorp/aws    | >= 6.20                    | Required for all AWS resources in this module (Lex, Lambda, IAM, CloudWatch, Polly) |
 #
-# In this module:
-# - AWS provider is used to provision all Lex V2 resources
-#
-# Version Strategy:
-# - ">= 6.20" ensures compatibility with newer AWS provider releases
-# - Lex V2 resources are relatively recent, so older versions may lack support
-#
-# Best Practice:
-# - Use a minimum version constraint in modules
-# - Pin exact versions in root modules for stability (e.g., = 6.25.0)
-#
-# NOTE:
-# - Ensure your root module configures AWS credentials and region
-#   (this module assumes provider configuration is inherited)
+# Notes:
+# - Ensures Terraform uses AWS provider version 6.20 or higher.
+# - Required for compatibility with aws_lexv2models_* resources and IAM policies.
+# - Can be extended with additional providers if needed.
 # ============================================================================
 
 terraform {

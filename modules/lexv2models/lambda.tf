@@ -1,39 +1,19 @@
 # ============================================================================
-# Lambda Permission for Lex Invocation (NEW)
+# Lambda Permissions for AWS Lex
 # ============================================================================
-
-# resource "aws_lambda_permission" "lex_invoke" {
-#   for_each = local.lambda_map
-
-#   statement_id  = "AllowLexInvoke-${each.key}"
-#   action        = "lambda:InvokeFunction"
-#   function_name = each.value
-#   principal     = "lexv2.amazonaws.com"
-# }
-
-# resource "aws_lambda_permission" "lex_invoke" {
-#   for_each = var.lambda_functions != null ? var.lambda_functions : {}
-
-#   statement_id  = "AllowLexInvoke-${each.key}"
-#   action        = "lambda:InvokeFunction"
-#   function_name = each.value.function_name
-#   principal     = "lex.amazonaws.com"
-# }
-
-# Allow Lex to invoke your Lambdas
-# resource "aws_lambda_permission" "lex_invoke" {
-#   for_each = var.lambda_functions   # static keys map from caller
-
-#   statement_id  = "AllowLexInvoke-${each.key}"
-#   action        = "lambda:InvokeFunction"
-
-#   # Use the Lambda module output to get ARN at runtime
-#   function_name = lookup(module.lambda.functions, each.key, null) != null ? module.lambda.functions[each.key].arn : ""
-
-#   principal     = "lex.amazonaws.com"
-# }
-
-resource "aws_lambda_permission" "lex_invoke" {
+# Resource Summary Table:
+# ----------------------------------------------------------------------------
+# | Resource Type           | Name / Identifier       | Purpose & Notes                                  |
+# |-------------------------|------------------------|--------------------------------------------------|
+# | aws_lambda_permission   | this                   | Grants Lex permission to invoke Lambda functions |
+#
+# Notes:
+# - Permissions are created dynamically for each Lambda function provided in var.lambda_functions.
+# - statement_id ensures uniqueness per Lambda function.
+# - principal is always lex.amazonaws.com to allow Lex to invoke the function.
+# - Fine-grained permissions are preferred over broad managed policies.
+# ============================================================================
+resource "aws_lambda_permission" "this" {
   for_each = var.lambda_functions
 
   statement_id  = "AllowLexInvoke-${each.key}"
