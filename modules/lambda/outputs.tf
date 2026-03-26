@@ -54,37 +54,37 @@
 # Lambda function ARN (map of all functions)
 output "lambda_function_arn" {
   description = "ARNs of all Lambda functions"
-  value = { for k, v in aws_lambda_function.this : k => v.arn }
+  value       = { for k, v in aws_lambda_function.this : k => v.arn }
 }
 
 # Lambda function name
 output "lambda_function_name" {
   description = "Names of all Lambda functions"
-  value = { for k, v in aws_lambda_function.this : k => v.function_name }
+  value       = { for k, v in aws_lambda_function.this : k => v.function_name }
 }
 
 # Lambda IAM Role ARN
 output "lambda_role_arn" {
   description = "IAM Role ARNs for all Lambda functions"
-  value = { for k, v in aws_iam_role.lambda_role : k => v.arn }
+  value       = { for k, v in aws_iam_role.lambda_role : k => v.arn }
 }
 
 # Lambda function version ARN
 output "lambda_version_arn" {
   description = "Versioned ARN of all Lambda functions"
-  value = { for k, v in aws_lambda_function.this : k => v.arn }
+  value       = { for k, v in aws_lambda_function.this : k => v.arn }
 }
 
 # Latest published version
 output "lambda_version" {
   description = "Latest published Lambda versions"
-  value = { for k, v in aws_lambda_function.this : k => v.version }
+  value       = { for k, v in aws_lambda_function.this : k => v.version }
 }
 
 # Versioned ARN (IMPORTANT for Lex / integrations)
 output "lambda_qualified_arn" {
   description = "Qualified ARNs including version for all Lambda functions"
-  value = { for k, v in aws_lambda_function.this : k => v.qualified_arn }
+  value       = { for k, v in aws_lambda_function.this : k => v.qualified_arn }
 }
 
 # Generic functions output

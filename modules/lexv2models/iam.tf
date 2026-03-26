@@ -44,7 +44,7 @@ data "aws_iam_policy_document" "lex_trust_relationship" {
 # Allows AWS Lex V2 service (lexv2.amazonaws.com) to assume this IAM role.
 # This is mandatory for Lex bots to function.
 resource "aws_iam_role" "lex_role" {
-  name                 = var.lexv2_bot_role_name// "${local.bot_name}-lex-role"
+  name                 = var.lexv2_bot_role_name // "${local.bot_name}-lex-role"
   assume_role_policy   = data.aws_iam_policy_document.lex_trust_relationship.json
   tags                 = var.tags
   max_session_duration = 43200

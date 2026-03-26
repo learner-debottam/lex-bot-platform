@@ -233,7 +233,7 @@ resource "aws_lexv2models_bot_version" "this" {
 
   # Human-readable version description (timestamp-based for uniqueness)
   //description = "Version created at ${timestamp()}"
-  description = "Stable version"  # stable description
+  description = "Stable version" # stable description
   # Include all locales from the DRAFT bot version
   locale_specification = {
     for locale_id, _ in local.locales : locale_id => {
@@ -245,7 +245,7 @@ resource "aws_lexv2models_bot_version" "this" {
   # OPTIONAL: Protect version from accidental deletion
   # --------------------------------------------------------------------------
   lifecycle {
-  //  prevent_destroy = true
+    //  prevent_destroy = true
     create_before_destroy = true
   }
 
@@ -260,8 +260,8 @@ resource "aws_lexv2models_bot_version" "this" {
   depends_on = [
     aws_lexv2models_intent.intents,
     aws_lexv2models_slot.slots
-  //  null_resource.build_bot
-  //null_resource.update_slot_priorities
+    //  null_resource.build_bot
+    //null_resource.update_slot_priorities
   ]
 }
 
@@ -298,7 +298,7 @@ resource "aws_lexv2models_intent" "intents" {
     for intent in local.intents :
     "${intent.locale}-${intent.name}" => intent
   }
-  
+
   bot_id      = aws_lexv2models_bot.this.id
   bot_version = "DRAFT"
   locale_id   = each.value.locale
@@ -346,7 +346,7 @@ resource "aws_lexv2models_intent" "intents" {
       }
     }
   }
-  
+
   # --------------------------------------------------------------------------
   # Confirmation Flow
   # --------------------------------------------------------------------------

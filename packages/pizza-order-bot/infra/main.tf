@@ -21,6 +21,6 @@ module "lex" {
   cloudwatch_log_group_arn = module.logs.log_group_arn
 
   polly_arn = local.polly_arn
-  
+
   lexv2_bot_role_name = "${var.aws_account_name}-${var.environment}-${local.bot_name}-lex-iam-role"
 }

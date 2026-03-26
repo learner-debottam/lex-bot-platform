@@ -149,19 +149,19 @@ locals {
   # }
 
   lambdas = {
-  for intent in local.lambda_intents : intent.fulfillment_lambda_name => {
-    s3_key      = "${intent.fulfillment_lambda_name}.zip"
-    handler     = "index.handler"
-    runtime     = "nodejs22.x"
-    timeout     = floor(lookup(intent.lambda_config, "timeout_ms", 3000) / 1000)
-    memory_size = 1024
-    description = intent.description
+    for intent in local.lambda_intents : intent.fulfillment_lambda_name => {
+      s3_key      = "${intent.fulfillment_lambda_name}.zip"
+      handler     = "index.handler"
+      runtime     = "nodejs22.x"
+      timeout     = floor(lookup(intent.lambda_config, "timeout_ms", 3000) / 1000)
+      memory_size = 1024
+      description = intent.description
 
-    environment_variables = {
-      INTENT_NAME = intent.fulfillment_lambda_name
+      environment_variables = {
+        INTENT_NAME = intent.fulfillment_lambda_name
+      }
     }
   }
-}
 
   # List of Lambda keys (names)
   lambda_keys = keys(local.lambdas)
@@ -189,7 +189,7 @@ module "lex_logs" {
 
 # Lambda logs (dynamic log groups for each Lambda)
 module "lambda_logs" {
-  source  = "../../../modules/cloudwatch-log-group"
+  source   = "../../../modules/cloudwatch-log-group"
   for_each = local.lambdas
 
   name              = "/aws/lambda/${each.key}"
@@ -202,13 +202,13 @@ module "lambda_logs" {
 # ============================================================================
 
 module "lambda" {
-  source          = "../../../modules/lambda"
-  lambdas         = local.lambdas
-  prevent_destroy = var.environment == "prod"
-  lambda_artifacts_bucket = var.lambda_artifacts_bucket  # ✅ add this
+  source                  = "../../../modules/lambda"
+  lambdas                 = local.lambdas
+  prevent_destroy         = var.environment == "prod"
+  lambda_artifacts_bucket = var.lambda_artifacts_bucket # ✅ add this
 
   # Map each Lambda to its CloudWatch log group ARN
-  lambda_log_group_arns = { 
+  lambda_log_group_arns = {
     for k, v in module.lambda_logs : k => v.log_group_arn
   }
 }
@@ -234,5 +234,5 @@ module "lex" {
   polly_arn                = local.polly_arn
   lexv2_bot_role_name      = "${local.namespace}-lex-iam-role"
 
-  depends_on = [module.lambda]  # Ensure Lambdas exist first
+  depends_on = [module.lambda] # Ensure Lambdas exist first
 }

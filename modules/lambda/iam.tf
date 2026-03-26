@@ -38,7 +38,7 @@ data "aws_iam_policy_document" "lambda_assume_role" {
 resource "aws_iam_role" "lambda_role" {
   for_each = var.lambdas
 
-  name               = "${each.key}-role"                   # use each.key instead of var.function_name
+  name               = "${each.key}-role" # use each.key instead of var.function_name
   assume_role_policy = data.aws_iam_policy_document.lambda_assume_role[each.key].json
   tags               = var.tags
 }
