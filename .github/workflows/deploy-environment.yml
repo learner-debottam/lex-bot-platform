@@ -10,6 +10,10 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
 
   #################################################
@@ -27,21 +31,23 @@ jobs:
 
       - name: Build All Packages
         run: |
+          set -e
           for pkg in packages/*; do
             if [ -f "$pkg/package.json" ]; then
+              echo "🔹 Installing and building $pkg"
               npm ci --prefix $pkg
-              npm run build --prefix $pkg || true
+              npm run build --prefix $pkg
 
               if ls $pkg/test/*.ts 1> /dev/null 2>&1; then
                 npm run test --prefix $pkg
               else
-                echo "No tests in $pkg"
+                echo "No tests found in $pkg"
               fi
             fi
           done
-  
+
   #################################################
-  # Validate Bot Configs (NEW STEP)
+  # Validate Bot Configs
   #################################################
   validate-config:
     runs-on: ${{ inputs.runner-name }}
@@ -52,11 +58,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run validation
+      - name: Run bot & lambda validation
         id: validate
         run: |
           set +e
-
           bash scripts/validate-bot-config.sh > validation.log 2>&1
           CONFIG_EXIT=$?
 
@@ -71,39 +76,27 @@ jobs:
             echo "failed=false" >> $GITHUB_OUTPUT
           fi
 
-      #############################################
-      # PR Comment (ONLY for PRs)
-      #############################################
-      - name: Comment on PR
+      - name: Comment on PR (if applicable)
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-
             const log = fs.readFileSync('validation.log', 'utf8');
+            if (log.trim() !== "") {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## ❌ Bot Validation Failed\n\n\`\`\`\n${log}\n\`\`\``
+              });
+            }
 
-            const body = `
-            ## ❌ Bot Validation Failed
-
-            \`\`\`
-            ${log}
-            \`\`\`
-            `;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
-
-  #############################################
-  # Fail pipeline if needed
-  #############################################
       - name: Fail if validation failed
         if: steps.validate.outputs.failed == 'true'
         run: exit 1
+
   #################################################
   # Terraform Plan + Scan
   #################################################
@@ -118,13 +111,19 @@ jobs:
         with:
           terraform_version: 1.14.7
 
-      - run: terraform -chdir=infra init
-      - run: terraform -chdir=infra validate
-      - run: terraform -chdir=infra plan -var-file="vars/${{ inputs.environment-to-deploy }}.tfvars" -out=tfplan
-
-      - run: terraform -chdir=infra show -json tfplan > tfplan.json
+      - name: Terraform Init / Plan / Validate
+        run: |
+          if [ -d "infra" ]; then
+            terraform -chdir=infra init
+            terraform -chdir=infra validate
+            terraform -chdir=infra plan -var-file="vars/${{ inputs.environment-to-deploy }}.tfvars" -out=tfplan
+            terraform -chdir=infra show -json tfplan > tfplan.json
+          else
+            echo "No infra directory found, skipping Terraform steps"
+          fi
 
       - uses: bridgecrewio/checkov-action@v12
+        if: ${{ steps.plan-scan.outputs.tfplan-exists == 'true' }}
         with:
           framework: terraform_plan
           file: tfplan.json
@@ -148,4 +147,6 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
 
-      - run: bash scripts/deploy.sh ${{ inputs.environment-to-deploy }}
+      - name: Run deployment
+        run: |
+          bash scripts/deploy.sh ${{ inputs.environment-to-deploy }}

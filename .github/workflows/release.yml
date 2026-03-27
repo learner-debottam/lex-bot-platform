@@ -20,10 +20,8 @@ jobs:
   #################################################
   release:
     runs-on: ubuntu-latest
-
     outputs:
       released: ${{ steps.release.outputs.releases_created }}
-
     steps:
       - uses: actions/checkout@v5
 
@@ -41,7 +39,7 @@ jobs:
           monorepo-tags: true
 
   #################################################
-  # DEV
+  # DEV Deployment
   #################################################
   deploy-dev:
     needs: release
@@ -53,7 +51,7 @@ jobs:
     secrets: inherit
 
   #################################################
-  # TEST (manual approval via GitHub Environment)
+  # TEST Deployment (manual approval)
   #################################################
   deploy-test:
     needs: deploy-dev
@@ -65,7 +63,7 @@ jobs:
     environment: test
 
   #################################################
-  # PRE-PROD
+  # PRE-PROD Deployment
   #################################################
   deploy-preprod:
     needs: deploy-test
@@ -77,7 +75,7 @@ jobs:
     environment: pre-prod
 
   #################################################
-  # PROD
+  # PROD Deployment
   #################################################
   deploy-prod:
     needs: deploy-preprod
