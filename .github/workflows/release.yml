@@ -20,8 +20,10 @@ jobs:
   #################################################
   release:
     runs-on: ubuntu-latest
+
     outputs:
       released: ${{ steps.release.outputs.releases_created }}
+
     steps:
       - uses: actions/checkout@v5
 
@@ -51,7 +53,7 @@ jobs:
     secrets: inherit
 
   #################################################
-  # TEST Deployment (manual approval)
+  # TEST Deployment (manual approval via GitHub Environment)
   #################################################
   deploy-test:
     needs: deploy-dev
@@ -60,7 +62,6 @@ jobs:
       environment-to-deploy: test
       runner-name: ubuntu-latest
     secrets: inherit
-    environment: test
 
   #################################################
   # PRE-PROD Deployment
@@ -72,7 +73,6 @@ jobs:
       environment-to-deploy: pre-prod
       runner-name: ubuntu-latest
     secrets: inherit
-    environment: pre-prod
 
   #################################################
   # PROD Deployment
@@ -84,4 +84,3 @@ jobs:
       environment-to-deploy: prod
       runner-name: ubuntu-latest
     secrets: inherit
-    environment: prod
