@@ -6,7 +6,8 @@ on:
       - "*"
 
 permissions:
-  contents: read
+  contents: read   # safe for PRs from forks
+  id-token: write  # required if using OIDC or AWS assume-role
 
 env:
   AWS_REGION: eu-west-2
@@ -14,7 +15,7 @@ env:
 
 jobs:
   #################################################
-  # Detect Changed Packages
+  # Detect changed packages
   #################################################
   detect:
     runs-on: ubuntu-latest
@@ -25,21 +26,21 @@ jobs:
 
       - id: set
         run: |
-          CHANGED=$(git diff --name-only origin/main HEAD | grep packages || true)
+          CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
           PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
           echo "packages=$PKGS" >> $GITHUB_OUTPUT
-          echo "Detected packages: $PKGS"
 
   #################################################
-  # Build + Test + Terraform Plan
+  # Build, Test, Terraform Plan per package
   #################################################
   build-test-plan:
     needs: detect
     runs-on: ubuntu-latest
-    if: ${{ needs.detect.outputs.packages != '[]' }}
     strategy:
       matrix:
         package: ${{ fromJson(needs.detect.outputs.packages) }}
+      fail-fast: false
+
     steps:
       - uses: actions/checkout@v5
 
@@ -51,31 +52,35 @@ jobs:
         run: |
           PKG=packages/${{ matrix.package }}
           if [ -f "$PKG/package.json" ]; then
+            echo "Installing $PKG..."
             npm ci --prefix $PKG
             npm run build --prefix $PKG || true
 
             if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
+              echo "Running tests for $PKG..."
               npm run test --prefix $PKG
             else
-              echo "No tests found"
+              echo "No tests found in $PKG"
             fi
           fi
 
-      - name: Terraform Plan (if exists)
+      - name: Terraform Plan (if infra exists)
         run: |
-          PKG_DIR=packages/${{ matrix.package }}/infra
-          if [ -d "$PKG_DIR" ]; then
-            terraform -chdir="$PKG_DIR" init
-            terraform -chdir="$PKG_DIR" plan
+          PKG_INFRA=packages/${{ matrix.package }}/infra
+          if [ -d "$PKG_INFRA" ]; then
+            terraform -chdir="$PKG_INFRA" init -input=false
+            terraform -chdir="$PKG_INFRA" validate
+            terraform -chdir="$PKG_INFRA" plan -out=tfplan || true
           fi
 
   #################################################
-  # Deploy to Dev
+  # Deploy Dev (reusable workflow)
   #################################################
   deploy-dev:
     needs: build-test-plan
+    if: ${{ fromJson(needs.detect.outputs.packages) != [] }}   # only run if packages changed
     uses: ./.github/workflows/deploy-environment.yml
     with:
       environment-to-deploy: dev
       runner-name: ubuntu-latest
-    secrets: inherit
+    # Do NOT inherit secrets for PRs from forks
