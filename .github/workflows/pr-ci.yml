@@ -6,8 +6,8 @@ on:
       - "*"
 
 permissions:
-  contents: read   # safe for PRs from forks
-  id-token: write  # required if using OIDC or AWS assume-role
+  contents: read
+  id-token: write
 
 env:
   AWS_REGION: eu-west-2
@@ -78,9 +78,8 @@ jobs:
   #################################################
   deploy-dev:
     needs: build-test-plan
-    if: ${{ fromJson(needs.detect.outputs.packages) != [] }}   # only run if packages changed
+    if: ${{ fromJson(needs.detect.outputs.packages) && fromJson(needs.detect.outputs.packages) != '' }}  # safe check for non-empty array
     uses: ./.github/workflows/deploy-environment.yml
     with:
       environment-to-deploy: dev
       runner-name: ubuntu-latest
-    # Do NOT inherit secrets for PRs from forks
