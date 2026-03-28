@@ -56,7 +56,7 @@ locals {
   }
 
   # List of Lambda keys (names)
-  lambda_keys = keys(local.lambdas)
+  //lambda_keys = keys(local.lambdas)
 
   # Lex Lambda map for module input
   # lex_lambda_keys = {
