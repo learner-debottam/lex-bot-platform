@@ -36,7 +36,7 @@ jobs:
           echo "::set-output name=packages::$PKGS"
 
   #################################################
-  # Build + Lint + Test + Terraform Checks
+  # Build + Lint + Test + Terraform + Security
   #################################################
   build-test:
     needs: detect
@@ -49,14 +49,23 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Node setup
+      # Node setup + cache
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: 'packages/**/package-lock.json'
+          cache-dependency-path: packages/${{ matrix.package }}/package-lock.json
 
-      # Install + Lint + Build + Tests
+      # Terraform provider cache
+      - name: Cache Terraform Providers
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            packages/${{ matrix.package }}/infra/.terraform/providers
+          key: terraform-providers-${{ matrix.package }}-${{ hashFiles('packages/' + matrix.package + '/infra/**/*.tf*') }}
+
+      # Install + Lint + Build + Test
       - name: Build & Test
         run: |
           PKG=packages/${{ matrix.package }}
@@ -74,7 +83,7 @@ jobs:
           fi
 
       #################################################
-      # Terraform Init, Lint, Validate, Plan
+      # Terraform Lint, Validate, Plan
       #################################################
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -82,7 +91,7 @@ jobs:
 
       - uses: terraform-linters/setup-tflint@v5
 
-      - name: Terraform Checks
+      - name: Terraform Checks & Plan
         run: |
           PKG=packages/${{ matrix.package }}
           if [ -d "$PKG/infra" ]; then
@@ -91,6 +100,7 @@ jobs:
             terraform -chdir=$PKG/infra validate
             tflint --chdir=$PKG/infra
             terraform plan -out=tfplan-${{ matrix.package }}.out
+            terraform show -json tfplan-${{ matrix.package }}.out > tfplan-${{ matrix.package }}.json
           fi
 
       #################################################
@@ -101,7 +111,6 @@ jobs:
           PKG=packages/${{ matrix.package }}
           if [ -d "$PKG/infra" ]; then
             checkov -d $PKG/infra
-          fi
 
   #################################################
   # Bot Config Validation
