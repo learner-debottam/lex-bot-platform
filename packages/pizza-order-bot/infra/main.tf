@@ -1,3 +1,6 @@
+terraform {
+  required_version = ">= 1.5.0"
+}
 locals {
   bot_config = jsondecode(file("${path.module}/../bot-config/pizza-order-config.json"))
   bot_name   = local.bot_config.name
