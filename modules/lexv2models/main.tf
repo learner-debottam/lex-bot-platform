@@ -121,7 +121,7 @@ resource "aws_lexv2models_intent" "intents" {
 
   dynamic "initial_response_setting" {
     for_each = each.value.fulfillment_lambda_name != null && length(var.lambda_arns) > 0 ? [1] : []
-  content {
+
     content {
       code_hook {
         active                      = true
