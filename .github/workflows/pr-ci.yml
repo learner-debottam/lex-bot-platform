@@ -7,15 +7,11 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-
-env:
-  AWS_REGION: eu-west-2
-  TF_VERSION: 1.14.7
+  pull-requests: write
 
 jobs:
   #################################################
-  # Detect changed packages
+  # Detect Changed Packages
   #################################################
   detect:
     runs-on: ubuntu-latest
@@ -23,18 +19,26 @@ jobs:
       packages: ${{ steps.set.outputs.packages }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - id: set
         run: |
           CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
           PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
-          echo "packages=$PKGS" >> $GITHUB_OUTPUT
+          
+          if [ -z "$PKGS" ] || [ "$PKGS" = "[]" ]; then
+            echo "packages=[]" >> $GITHUB_OUTPUT
+          else
+            echo "packages=$PKGS" >> $GITHUB_OUTPUT
+          fi
 
   #################################################
-  # Build, Test, Terraform Plan per package
+  # Build + Lint + Test + Terraform
   #################################################
-  build-test-plan:
+  build-test:
     needs: detect
+    if: ${{ needs.detect.outputs.packages != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -48,38 +52,55 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install / Build / Test
+      - name: Install + Lint + Build
         run: |
           PKG=packages/${{ matrix.package }}
+
           if [ -f "$PKG/package.json" ]; then
-            echo "Installing $PKG..."
             npm ci --prefix $PKG
-            npm run build --prefix $PKG || true
-
-            if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
-              echo "Running tests for $PKG..."
-              npm run test --prefix $PKG
-            else
-              echo "No tests found in $PKG"
-            fi
+            npm run lint --prefix $PKG
+            npm run typecheck --prefix $PKG
+            npm run build --prefix $PKG
           fi
 
-      - name: Terraform Plan (if infra exists)
+      - name: Run Tests
         run: |
-          PKG_INFRA=packages/${{ matrix.package }}/infra
-          if [ -d "$PKG_INFRA" ]; then
-            terraform -chdir="$PKG_INFRA" init -input=false
-            terraform -chdir="$PKG_INFRA" validate
-            terraform -chdir="$PKG_INFRA" plan -out=tfplan || true
+          PKG=packages/${{ matrix.package }}
+          if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
+            npm run test --prefix $PKG
+          else
+            echo "No tests"
+          fi
+
+      - name: Terraform Lint + Validate
+        run: |
+          PKG=packages/${{ matrix.package }}
+          if [ -d "$PKG/infra" ]; then
+            terraform -chdir=$PKG/infra fmt -check
+            terraform -chdir=$PKG/infra init -input=false
+            terraform -chdir=$PKG/infra validate
+          fi
+
+      - name: TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - run: |
+          PKG=packages/${{ matrix.package }}
+          if [ -d "$PKG/infra" ]; then
+            tflint $PKG/infra
           fi
 
   #################################################
-  # Deploy Dev (reusable workflow)
+  # Bot Config Validation
   #################################################
-  deploy-dev:
-    needs: build-test-plan
-    if: ${{ fromJson(needs.detect.outputs.packages) && fromJson(needs.detect.outputs.packages) != '' }}  # safe check for non-empty array
-    uses: ./.github/workflows/deploy-environment.yml
-    with:
-      environment-to-deploy: dev
-      runner-name: ubuntu-latest
+  validate-config:
+    runs-on: ubuntu-latest
+    needs: build-test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run Validation
+        run: |
+          bash scripts/validate-bot-config.sh
+          bash scripts/validate-lambda-links.sh
