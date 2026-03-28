@@ -102,8 +102,10 @@ jobs:
       - name: Run TFLint
         run: |
           PKG=packages/${{ matrix.package }}
+
           if [ -d "$PKG/infra" ]; then
-            tflint $PKG/infra
+            tflint --init
+            tflint --chdir=$PKG/infra
           fi
 
   #################################################
