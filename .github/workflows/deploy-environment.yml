@@ -10,71 +10,16 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: read
-  id-token: write
-  actions: read
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-
-  #################################################
-  # Build, Lint, Test
-  #################################################
-  build:
-    runs-on: ${{ inputs.runner-name }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-
-      - name: Install, Build & Test Packages
-        run: |
-          for pkg in packages/*; do
-            if [ -f "$pkg/package.json" ]; then
-              echo "📦 Processing $pkg"
-              npm ci --prefix "$pkg"
-              npm run build --prefix "$pkg" || true
-
-              if ls "$pkg"/test/*.ts 1> /dev/null 2>&1; then
-                npm run test --prefix "$pkg"
-              else
-                echo "⏭️ No tests in $pkg"
-              fi
-            fi
-          done
-
-      - name: TypeScript Lint
-        run: |
-          for pkg in packages/*; do
-            if [ -f "$pkg/package.json" ]; then
-              npm run lint --prefix "$pkg" || true
-            fi
-          done
-
-  #################################################
-  # Validate Bot Configs + Lambda References
-  #################################################
-  validate-config:
-    runs-on: ${{ inputs.runner-name }}
-    needs: build
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Run Bot Config Validation
-        run: |
-          bash scripts/validate-bot-config.sh
-          bash scripts/validate-lambda-links.sh
-
   #################################################
   # Terraform Plan + Scan
   #################################################
-  plan-scan:
+  plan:
     runs-on: ${{ inputs.runner-name }}
-    needs: validate-config
+
     steps:
       - uses: actions/checkout@v5
 
@@ -82,26 +27,18 @@ jobs:
         with:
           terraform_version: 1.14.7
 
-      - name: Terraform Init
-        run: terraform -chdir=infra init
-
-      - name: Terraform Validate
-        run: terraform -chdir=infra validate
-
       - name: Terraform Plan
-        run: terraform -chdir=infra plan -var-file="vars/${{ inputs.environment-to-deploy }}.tfvars" -out=tfplan
+        run: |
+          terraform -chdir=infra init
+          terraform -chdir=infra validate
+          terraform -chdir=infra plan \
+            -var-file="vars/${{ inputs.environment-to-deploy }}.tfvars" \
+            -out=tfplan
 
-      - name: Terraform Plan JSON
+      - name: Convert Plan
         run: terraform -chdir=infra show -json tfplan > tfplan.json
 
-      - name: Terraform Lint (TFLint)
-        uses: terraform-linters/setup-tflint@v5
-        with:
-          version: latest
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-      - name: Checkov Scan
+      - name: Security Scan
         uses: bridgecrewio/checkov-action@v12
         with:
           framework: terraform_plan
@@ -113,16 +50,19 @@ jobs:
   #################################################
   deploy:
     runs-on: ${{ inputs.runner-name }}
-    needs: plan-scan
+    needs: plan
+    environment: ${{ inputs.environment-to-deploy }}
+
     steps:
       - uses: actions/checkout@v5
 
-      - uses: aws-actions/configure-aws-credentials@v5
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-region: eu-west-2
-          role-to-assume: ${{ secrets.AWS_DEV_ROLE }}
+          role-to-assume: ${{ secrets[format('AWS_{0}_ROLE', inputs.environment-to-deploy)] }}
 
       - uses: hashicorp/setup-terraform@v3
 
-      - name: Deploy Environment
+      - name: Deploy
         run: bash scripts/deploy.sh ${{ inputs.environment-to-deploy }}

@@ -1,128 +1,124 @@
-name: Deploy Environment
+name: PR CI
 
 on:
-  workflow_call:
-    inputs:
-      environment-to-deploy:
-        required: true
-        type: string
-      runner-name:
-        required: true
-        type: string
+  pull_request:
+    branches:
+      - "*"
 
 permissions:
   contents: read
-  id-token: write
-  actions: read
+  pull-requests: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-
   #################################################
-  # Build, Lint, Test
+  # Detect Changed Packages
   #################################################
-  build:
-    runs-on: ${{ inputs.runner-name }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-
-      - name: Install, Build & Test Packages
-        run: |
-          for pkg in packages/*; do
-            if [ -f "$pkg/package.json" ]; then
-              echo "📦 Processing $pkg"
-              npm ci --prefix "$pkg"
-              npm run build --prefix "$pkg" || true
-
-              if ls "$pkg"/test/*.ts 1> /dev/null 2>&1; then
-                npm run test --prefix "$pkg"
-              else
-                echo "⏭️ No tests in $pkg"
-              fi
-            fi
-          done
-
-      - name: TypeScript Lint
-        run: |
-          for pkg in packages/*; do
-            if [ -f "$pkg/package.json" ]; then
-              npm run lint --prefix "$pkg" || true
-            fi
-          done
-
-  #################################################
-  # Validate Bot Configs + Lambda References
-  #################################################
-  validate-config:
-    runs-on: ${{ inputs.runner-name }}
-    needs: build
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.set.outputs.packages }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Run Bot Config Validation
+      - id: set
         run: |
-          bash scripts/validate-bot-config.sh
-          bash scripts/validate-lambda-links.sh
+          CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
+          PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
+
+          if [ -z "$PKGS" ] || [ "$PKGS" = "[]" ]; then
+            echo "packages=[]" >> $GITHUB_OUTPUT
+          else
+            echo "packages=$PKGS" >> $GITHUB_OUTPUT
+          fi
 
   #################################################
-  # Terraform Plan + Scan
+  # Build + Lint + Test + Terraform
   #################################################
-  plan-scan:
-    runs-on: ${{ inputs.runner-name }}
-    needs: validate-config
+  build-test:
+    needs: detect
+    if: ${{ needs.detect.outputs.packages != '[]' }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        package: ${{ fromJson(needs.detect.outputs.packages) }}
+      fail-fast: false
+
     steps:
       - uses: actions/checkout@v5
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: 'packages/**/package-lock.json'
+      - name: Install + Lint + Build
+        run: |
+          PKG=packages/${{ matrix.package }}
+
+          if [ -f "$PKG/package.json" ]; then
+            npm ci --prefix $PKG
+            npm run lint --prefix $PKG
+            npm run typecheck --prefix $PKG
+            npm run build --prefix $PKG
+          fi
+
+      - name: Run Tests
+        run: |
+          PKG=packages/${{ matrix.package }}
+          if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
+            npm run test --prefix $PKG
+          else
+            echo "No tests"
+          fi
+
+      #################################################
+      # Terraform Lint + Validate
+      #################################################
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.14.7
 
-      - name: Terraform Init
-        run: terraform -chdir=infra init
+      - name: Terraform Checks
+        run: |
+          PKG=packages/${{ matrix.package }}
 
-      - name: Terraform Validate
-        run: terraform -chdir=infra validate
+          if [ -d "$PKG/infra" ]; then
+            terraform -chdir=$PKG/infra fmt -check
+            terraform -chdir=$PKG/infra init -input=false
+            terraform -chdir=$PKG/infra validate
+          fi
 
-      - name: Terraform Plan
-        run: terraform -chdir=infra plan -var-file="vars/${{ inputs.environment-to-deploy }}.tfvars" -out=tfplan
+      #################################################
+      # TFLint (UPDATED VERSION)
+      #################################################
+      - uses: terraform-linters/setup-tflint@v5
+# 
+      - name: Run TFLint
+        run: |
+          PKG=packages/${{ matrix.package }}
 
-      - name: Terraform Plan JSON
-        run: terraform -chdir=infra show -json tfplan > tfplan.json
-
-      - name: Terraform Lint (TFLint)
-        uses: terraform-linters/setup-tflint@v5
-        with:
-          version: latest
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-      - name: Checkov Scan
-        uses: bridgecrewio/checkov-action@v12
-        with:
-          framework: terraform_plan
-          file: tfplan.json
-          quiet: true
+          if [ -d "$PKG/infra" ]; then
+            tflint --init
+            tflint --chdir=$PKG/infra
+          fi
 
   #################################################
-  # Deploy
+  # Bot Config Validation
   #################################################
-  deploy:
-    runs-on: ${{ inputs.runner-name }}
-    needs: plan-scan
+  validate-config:
+    runs-on: ubuntu-latest
+    needs: build-test
+
     steps:
       - uses: actions/checkout@v5
 
-      - uses: aws-actions/configure-aws-credentials@v5
-        with:
-          aws-region: eu-west-2
-          role-to-assume: ${{ secrets.AWS_DEV_ROLE }}
-
-      - uses: hashicorp/setup-terraform@v3
-
-      - name: Deploy Environment
-        run: bash scripts/deploy.sh ${{ inputs.environment-to-deploy }}
+      - name: Run Validation
+        run: |
+          bash scripts/validate-bot-config.sh
+          bash scripts/validate-lambda-links.sh
