@@ -1,3 +1,121 @@
+# name: PR CI
+
+# on:
+#   pull_request:
+#     branches:
+#       - "*"
+
+# permissions:
+#   contents: read
+#   pull-requests: write
+
+# env:
+#   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+#   AWS_REGION: eu-west-2
+#   TERRAFORM_VERSION: 1.5.7
+#   NODE_VERSION: 24
+
+# jobs:
+#   #################################################
+#   # Detect Changed Packages
+#   #################################################
+#   detect:
+#     runs-on: ubuntu-latest
+#     outputs:
+#       packages: ${{ steps.set.outputs.packages }}
+#     steps:
+#       - uses: actions/checkout@v5
+#         with:
+#           fetch-depth: 0
+
+#       - id: set
+#         run: |
+#           CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
+#           PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
+#           echo "Detected packages: $PKGS"
+#           echo "::set-output name=packages::$PKGS"
+
+#   #################################################
+#   # Build + Lint + Test + Terraform Checks
+#   #################################################
+#   build-test:
+#     needs: detect
+#     if: ${{ needs.detect.outputs.packages != '[]' }}
+#     runs-on: ubuntu-latest
+#     strategy:
+#       matrix:
+#         package: ${{ fromJson(needs.detect.outputs.packages) }}
+#       fail-fast: false
+#     steps:
+#       - uses: actions/checkout@v5
+
+#       # Node setup
+#       - uses: actions/setup-node@v6
+#         with:
+#           node-version: ${{ env.NODE_VERSION }}
+#           cache: 'npm'
+#           cache-dependency-path: 'packages/**/package-lock.json'
+
+#       # Install + Lint + Build + Tests
+#       - name: Build & Test
+#         run: |
+#           PKG=packages/${{ matrix.package }}
+#           if [ -f "$PKG/package.json" ]; then
+#             npm ci --prefix $PKG
+#             npm run lint --prefix $PKG
+#             npm run typecheck --prefix $PKG
+#             npm run build --prefix $PKG
+#           fi
+
+#           if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
+#             npm run test --prefix $PKG
+#           else
+#             echo "No tests found"
+#           fi
+
+#       #################################################
+#       # Terraform Init, Lint, Validate, Plan
+#       #################################################
+#       - uses: hashicorp/setup-terraform@v3
+#         with:
+#           terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+#       - uses: terraform-linters/setup-tflint@v5
+
+#       - name: Terraform Checks
+#         run: |
+#           PKG=packages/${{ matrix.package }}
+#           if [ -d "$PKG/infra" ]; then
+#             terraform -chdir=$PKG/infra fmt -check
+#             terraform -chdir=$PKG/infra init -backend=false
+#             terraform -chdir=$PKG/infra validate
+#             tflint --chdir=$PKG/infra
+#             terraform plan -out=tfplan-${{ matrix.package }}.out
+#           fi
+
+#       #################################################
+#       # Security Checks - Checkov
+#       #################################################
+#       - name: Run Checkov
+#         run: |
+#           PKG=packages/${{ matrix.package }}
+#           if [ -d "$PKG/infra" ]; then
+#             checkov -d $PKG/infra
+#           fi
+
+#   #################################################
+#   # Bot Config Validation
+#   #################################################
+#   validate-config:
+#     needs: build-test
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v5
+#       - name: Validate Bot Configs
+#         run: |
+#           bash scripts/validate-bot-config.sh
+#           bash scripts/validate-lambda-links.sh
+
 name: PR CI
 
 on:
@@ -10,14 +128,15 @@ permissions:
   pull-requests: write
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   AWS_REGION: eu-west-2
   TERRAFORM_VERSION: 1.5.7
   NODE_VERSION: 24
+  TF_STATE_BUCKET: my-terraform-state-bucket       # Change to your bucket
+  TF_LOCK_TABLE: terraform-state-lock             # Change to your DynamoDB table
 
 jobs:
   #################################################
-  # Detect Changed Packages
+  # 1️⃣ Detect Changed Packages
   #################################################
   detect:
     runs-on: ubuntu-latest
@@ -32,11 +151,14 @@ jobs:
         run: |
           CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
           PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
-          echo "Detected packages: $PKGS"
-          echo "::set-output name=packages::$PKGS"
+          if [ -z "$PKGS" ] || [ "$PKGS" = "[]" ]; then
+            echo "packages=[]" >> $GITHUB_OUTPUT
+          else
+            echo "packages=$PKGS" >> $GITHUB_OUTPUT
+          fi
 
   #################################################
-  # Build + Lint + Test + Terraform Checks
+  # 2️⃣ Build + Lint + Test + Terraform
   #################################################
   build-test:
     needs: detect
@@ -49,15 +171,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Node setup
+      # --------------------------
+      # Node.js: install, lint, build, test
+      # --------------------------
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           cache-dependency-path: 'packages/**/package-lock.json'
 
-      # Install + Lint + Build + Tests
-      - name: Build & Test
+      - name: Install + Lint + Build
         run: |
           PKG=packages/${{ matrix.package }}
           if [ -f "$PKG/package.json" ]; then
@@ -67,51 +190,84 @@ jobs:
             npm run build --prefix $PKG
           fi
 
+      - name: Run Tests
+        run: |
+          PKG=packages/${{ matrix.package }}
           if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
             npm run test --prefix $PKG
           else
-            echo "No tests found"
+            echo "No TypeScript tests found"
           fi
 
-      #################################################
-      # Terraform Init, Lint, Validate, Plan
-      #################################################
+      # --------------------------
+      # Terraform Setup & Checks
+      # --------------------------
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      - uses: terraform-linters/setup-tflint@v5
-
       - name: Terraform Checks
         run: |
           PKG=packages/${{ matrix.package }}
-          if [ -d "$PKG/infra" ]; then
+          if [ -d "$PKG/infra" ] && ls $PKG/infra/*.tf 1> /dev/null 2>&1; then
+            echo "Terraform Fmt + Init + Validate for $PKG"
             terraform -chdir=$PKG/infra fmt -check
-            terraform -chdir=$PKG/infra init -backend=false
+            terraform -chdir=$PKG/infra init \
+              -backend-config="bucket=${TF_STATE_BUCKET}" \
+              -backend-config="key=${matrix.package}/terraform.tfstate" \
+              -backend-config="region=${AWS_REGION}" \
+              -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
+              -reconfigure
             terraform -chdir=$PKG/infra validate
-            tflint --chdir=$PKG/infra
-            terraform plan -out=tfplan-${{ matrix.package }}.out
           fi
 
-      #################################################
-      # Security Checks - Checkov
-      #################################################
-      - name: Run Checkov
+      - uses: terraform-linters/setup-tflint@v5
+      - name: Run TFLint
         run: |
           PKG=packages/${{ matrix.package }}
-          if [ -d "$PKG/infra" ]; then
-            checkov -d $PKG/infra
+          if [ -d "$PKG/infra" ] && ls $PKG/infra/*.tf 1> /dev/null 2>&1; then
+            tflint --chdir=$PKG/infra
           fi
 
+      # --------------------------
+      # Terraform Plan
+      # --------------------------
+      - name: Terraform Plan
+        run: |
+          PKG=packages/${{ matrix.package }}
+          if [ -d "$PKG/infra" ] && ls $PKG/infra/*.tf 1> /dev/null 2>&1; then
+            terraform -chdir=$PKG/infra plan -out=tfplan-${matrix.package}.out
+          fi
+
+      - name: Upload Terraform Plan Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: tfplan-${{ matrix.package }}
+          path: packages/${{ matrix.package }}/infra/tfplan-${{ matrix.package }}.out
+
   #################################################
-  # Bot Config Validation
+  # 3️⃣ Bot Configuration Validation
   #################################################
   validate-config:
-    needs: build-test
     runs-on: ubuntu-latest
+    needs: build-test
     steps:
       - uses: actions/checkout@v5
-      - name: Validate Bot Configs
+      - name: Run Bot Validation
         run: |
           bash scripts/validate-bot-config.sh
           bash scripts/validate-lambda-links.sh
+
+  #################################################
+  # 4️⃣ Security Checks (Checkov)
+  #################################################
+  security:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run Checkov
+        uses: bridgecrewio/checkov@v2
+        with:
+          directory: packages
+          framework: terraform

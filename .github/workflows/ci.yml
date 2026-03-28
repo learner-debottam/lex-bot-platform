@@ -1,25 +1,23 @@
-name: CI - Main Branch
+name: CI - Release / Deploy
 
 on:
   push:
     branches:
       - main
-    paths:
-      - 'packages/**'
-      - 'infra/**'
+  workflow_dispatch:
 
 env:
   AWS_REGION: eu-west-2
   TERRAFORM_VERSION: 1.5.7
   NODE_VERSION: 24
-  TF_STATE_BUCKET: my-terraform-state-bucket        # Change to your bucket
-  TF_LOCK_TABLE: terraform-state-lock              # Change to your DynamoDB table
+  TF_STATE_BUCKET: debottam-learner-terraform-state-bucket       # Change to your bucket
+  TF_LOCK_TABLE: terraform-state-lock             # Change to your DynamoDB table
 
 jobs:
   #################################################
-  # Detect Changed Packages
+  # 1️⃣ Detect Changed Packages
   #################################################
-  detect-changed-packages:
+  detect:
     runs-on: ubuntu-latest
     outputs:
       packages: ${{ steps.set.outputs.packages }}
@@ -39,29 +37,25 @@ jobs:
           fi
 
   #################################################
-  # Build + Lint + Test + Terraform Plan + Apply
+  # 2️⃣ Build + Lint + Test
   #################################################
-  build-test-terraform:
-    needs: detect-changed-packages
-    if: ${{ needs.detect-changed-packages.outputs.packages != '[]' }}
+  build-test:
+    needs: detect
+    if: ${{ needs.detect.outputs.packages != '[]' }}
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
-        package: ${{ fromJson(needs.detect-changed-packages.outputs.packages) }}
+        package: ${{ fromJson(needs.detect.outputs.packages) }}
       fail-fast: false
-
     steps:
       - uses: actions/checkout@v5
 
-      # Setup Node.js
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           cache-dependency-path: 'packages/**/package-lock.json'
 
-      # Install, Lint, Build
       - name: Install + Lint + Build
         run: |
           PKG=packages/${{ matrix.package }}
@@ -72,33 +66,45 @@ jobs:
             npm run build --prefix $PKG
           fi
 
-      # Run Tests (if exist)
       - name: Run Tests
         run: |
           PKG=packages/${{ matrix.package }}
           if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
             npm run test --prefix $PKG
           else
-            echo "No tests for $PKG"
+            echo "No TypeScript tests found"
           fi
 
-      #################################################
-      # Terraform Init + Plan + Apply
-      #################################################
+  #################################################
+  # 3️⃣ Terraform Apply per Package
+  #################################################
+  terraform-apply:
+    needs: build-test
+    if: ${{ needs.detect.outputs.packages != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: ${{ fromJson(needs.detect.outputs.packages) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v5
+
+      # Terraform Setup
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      # Cache Terraform providers
-      - uses: actions/cache@v3
+      # Terraform Provider Cache
+      - name: Cache Terraform Providers
+        uses: actions/cache@v3
         with:
           path: |
             ~/.terraform.d/plugin-cache
             **/.terraform/providers
-          key: terraform-providers-${{ matrix.package }}-${{ hashFiles('packages/' + matrix.package + '/**/*.tf*') }}
+          key: terraform-providers-${{ matrix.package }}-${{ hashFiles('packages/' + matrix.package + '/infra/**/*.tf*') }}
 
-      # Terraform Init
-      - name: Terraform Init
+      # Terraform Init + Apply
+      - name: Terraform Apply
         working-directory: packages/${{ matrix.package }}/infra
         run: |
           terraform init \
@@ -107,55 +113,18 @@ jobs:
             -backend-config="region=${AWS_REGION}" \
             -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
             -reconfigure
-
-      # Terraform Plan
-      - name: Terraform Plan
-        working-directory: packages/${{ matrix.package }}/infra
-        run: |
-          terraform plan -out=tfplan-${{ matrix.package }}.out
-          terraform show -json tfplan-${{ matrix.package }}.out > tfplan-${{ matrix.package }}.json
-
-      - name: Upload Terraform Plan Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: tfplan-${{ matrix.package }}
-          path: packages/${{ matrix.package }}/infra/tfplan-${{ matrix.package }}.out
-
-      # Terraform Apply (auto-approve)
-      - name: Terraform Apply
-        working-directory: packages/${{ matrix.package }}/infra
-        run: |
-          terraform apply -auto-approve tfplan-${{ matrix.package }}.out
-
-      #################################################
-      # Terraform Lint + Validate
-      #################################################
-      - uses: terraform-linters/setup-tflint@v5
-
-      - name: Terraform Checks
-        run: |
-          PKG=packages/${{ matrix.package }}
-          if [ -d "$PKG/infra" ]; then
-            terraform fmt -check -recursive $PKG/infra
-            terraform validate $PKG/infra
-            tflint --init
-            tflint --chdir=$PKG/infra
-          fi
-
-      #################################################
-      # Security Checks (Checkov)
-      #################################################
+          terraform apply -auto-approve
+          
+  #################################################
+  # 4️⃣ Security Checks (Checkov)
+  #################################################
+  security:
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
       - name: Run Checkov
-        run: |
-          PKG=packages/${{ matrix.package }}
-          if [ -d "$PKG/infra" ]; then
-            checkov -d $PKG/infra --quiet
-          fi
-
-      #################################################
-      # Bot Config Validation
-      #################################################
-      - name: Validate Bot Config
-        run: |
-          bash scripts/validate-bot-config.sh
-          bash scripts/validate-lambda-links.sh
+        uses: bridgecrewio/checkov@v2
+        with:
+          directory: packages
+          framework: terraform
