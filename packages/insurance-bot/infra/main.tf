@@ -33,7 +33,7 @@
 #       # Lambda Config
 #       ##########################################
 #       handler     = "index.handler"   # IMPORTANT ✅ (not dist/)
-#       runtime     = "nodejs22.x"
+#       runtime     = "nodejs24.x"
 #       timeout     = lookup(intent.lambda_config, "timeout_ms", 3000) / 1000
 #       memory_size = 1024
 #       description = intent.description
@@ -138,7 +138,7 @@ locals {
   #   for intent in local.lambda_intents : intent.fulfillment_lambda_name => {
   #     artifact_path        = "${path.module}/../../artifacts/${intent.fulfillment_lambda_name}.zip"
   #     handler              = "index.handler"
-  #     runtime              = "nodejs22.x"
+  #     runtime              = "nodejs24.x"
   #     timeout              = lookup(intent.lambda_config, "timeout_ms", 3000) / 1000
   #     memory_size          = 1024
   #     description          = intent.description
@@ -152,7 +152,7 @@ locals {
     for intent in local.lambda_intents : intent.fulfillment_lambda_name => {
       s3_key      = "${intent.fulfillment_lambda_name}.zip"
       handler     = "index.handler"
-      runtime     = "nodejs22.x"
+      runtime     = "nodejs24.x"
       timeout     = floor(lookup(intent.lambda_config, "timeout_ms", 3000) / 1000)
       memory_size = 1024
       description = intent.description
