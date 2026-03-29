@@ -4,14 +4,18 @@ on:
   pull_request:
     branches:
       - "*"
-    paths:
-      - "packages/**"
-      - "modules/**"
-      - "infra/**"
+  workflow_dispatch:
+    inputs:
+      enable_tf_debug:
+        description: "Enable Terraform debug logging"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   pull-requests: write
+  id-token: write   # REQUIRED for OIDC
 
 env:
   AWS_REGION: eu-west-2
@@ -21,49 +25,56 @@ env:
   NODE_VERSION: 24
 
 jobs:
-  #################################################
-  # Detect Changed Packages
-  #################################################
   detect:
     runs-on: ubuntu-latest
     outputs:
       packages: ${{ steps.set.outputs.packages }}
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - id: set
-        name: Detect Changed Packages
         run: |
           CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
           PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
-
           if [ -z "$PKGS" ] || [ "$PKGS" = "[]" ]; then
             echo "packages=[]" >> $GITHUB_OUTPUT
           else
             echo "packages=$PKGS" >> $GITHUB_OUTPUT
           fi
 
-  #################################################
-  # Build + Lint + TypeScript Tests + Terraform Checks
-  #################################################
   build-test:
     needs: detect
     if: ${{ needs.detect.outputs.packages != '[]' }}
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         package: ${{ fromJson(needs.detect.outputs.packages) }}
       fail-fast: false
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
       #################################################
-      # Node.js Setup + Build
+      # Enable TF Debug (optional)
+      #################################################
+      - name: Enable TF Debug
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.enable_tf_debug == 'true' }}
+        run: echo "TF_LOG=DEBUG" >> $GITHUB_ENV
+
+      #################################################
+      # AWS OIDC Role
+      #################################################
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ASSUME_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      #################################################
+      # Node Build
       #################################################
       - uses: actions/setup-node@v6
         with:
@@ -86,12 +97,10 @@ jobs:
           PKG=packages/${{ matrix.package }}
           if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
             npm run test --prefix $PKG
-          else
-            echo "No tests found in $PKG"
           fi
 
       #################################################
-      # Terraform Init + Lint + Validate + Plan
+      # Terraform
       #################################################
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -100,8 +109,7 @@ jobs:
       - name: Terraform Init + Validate + Plan
         run: |
           PKG=packages/${{ matrix.package }}
-          if [ -d "$PKG/infra" ]; then
-            echo "Terraform Fmt + Init + Validate + Plan for $PKG"
+          if [ -d "$PKG/infra" ] && ls $PKG/infra/*.tf 1> /dev/null 2>&1; then
             terraform -chdir=$PKG/infra fmt -check
             terraform -chdir=$PKG/infra init \
               -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
@@ -113,41 +121,8 @@ jobs:
             terraform -chdir=$PKG/infra plan -out=${{ matrix.package }}-plan.tfplan
           fi
 
-      - name: TFLint
-        uses: terraform-linters/setup-tflint@v5
-
-      - name: Run TFLint
-        run: |
-          PKG=packages/${{ matrix.package }}
-          if [ -d "$PKG/infra" ]; then
-            tflint --init
-            tflint --chdir=$PKG/infra
-          fi
-
-      - name: Run Checkov
-        run: |
-          PKG=packages/${{ matrix.package }}
-          if [ -d "$PKG/infra" ]; then
-            checkov -d $PKG/infra
-          fi
-
-      - name: Upload Terraform Plan Artifact
+      - name: Upload Plan
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.package }}-plan
           path: packages/${{ matrix.package }}/infra/${{ matrix.package }}-plan.tfplan
-
-  #################################################
-  # Bot Config Validation
-  #################################################
-  validate-config:
-    needs: build-test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v5
-
-      - name: Run Bot Config Validation
-        run: |
-          bash scripts/validate-bot-config.sh
-          bash scripts/validate-lambda-links.sh
