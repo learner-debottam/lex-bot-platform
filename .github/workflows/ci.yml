@@ -12,12 +12,9 @@ env:
   NODE_VERSION: 24
   TF_STATE_BUCKET: debottam-learner-terraform-state-bucket
   TF_LOCK_TABLE: terraform-state-lock
-  ENVIRONMENT: dev   # 👈 change to prod for prod pipeline
+  ENVIRONMENT: dev
 
 jobs:
-  #################################################
-  # Detect changed packages
-  #################################################
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -25,23 +22,31 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # ensures git diff works
 
       - name: Detect changed packages
         id: set-matrix
         run: |
-          CHANGED=$(git diff --name-only HEAD~1 | grep '^packages/' | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
-          if [ -z "$CHANGED" ]; then
+          # fallback for first commit / shallow checkout
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '^packages/' || true)
+          else
+            git fetch origin main
+            CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
+          fi
+
+          PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
+          if [ -z "$PKGS" ] || [ "$PKGS" = "[]" ]; then
             echo "packages=[]" >> $GITHUB_OUTPUT
           else
-            echo "packages=$CHANGED" >> $GITHUB_OUTPUT
+            echo "packages=$PKGS" >> $GITHUB_OUTPUT
 
-  #################################################
-  # Apply Terraform for changed packages
-  #################################################
   apply:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.packages != '[]' }}
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         package: ${{ fromJson(needs.detect-changes.outputs.packages) }}
@@ -52,6 +57,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -64,13 +71,11 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ASSUME_ROLE }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Terraform Apply
+      - name: Terraform Init + Apply (only changed packages)
         run: |
           PKG=packages/${{ matrix.package }}
-          TFVARS_FILE=$GITHUB_WORKSPACE/infra/vars/${{ env.ENVIRONMENT }}.tfvars
-
-          if [ -d "$PKG/infra" ] && ls $PKG/infra/*.tf 1> /dev/null 2>&1; then
-            echo "Applying Terraform for $PKG using $TFVARS_FILE"
+          if [ -d "$PKG/infra" ]; then
+            echo "Applying Terraform for $PKG"
 
             terraform -chdir=$PKG/infra init \
               -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
@@ -80,8 +85,8 @@ jobs:
               -reconfigure
 
             terraform -chdir=$PKG/infra apply \
-              -var-file=$TFVARS_FILE \
+              -var-file=$GITHUB_WORKSPACE/infra/vars/${{ env.ENVIRONMENT }}.tfvars \
               -auto-approve
           else
-            echo "No Terraform files found in $PKG/infra. Skipping."
+            echo "No Terraform infra found in $PKG. Skipping."
           fi
