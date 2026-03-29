@@ -14,7 +14,12 @@
 # - infra/vars/<env>.tfvars for each *.tfvars discovered under infra/vars/.
 # - Release Please: .release-please-config.json and .release-please-manifest.json at repo root
 #   (see https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md ).
-# - PAT secret RELEASE_PLEASE_TOKEN is recommended so CI re-runs on release PRs (GITHUB_TOKEN events do not chain).
+# - Release PRs / “Actions is not permitted to create or approve pull requests”:
+#   • Repo: Settings → Actions → General → Workflow permissions → enable “Read and write permissions”
+#     AND check “Allow GitHub Actions to create and approve pull requests”.
+#     https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#preventing-github-actions-from-creating-or-approving-pull-requests
+#   • Or set secret RELEASE_PLEASE_TOKEN to a PAT (classic: repo scope; fine-grained: Contents + Pull requests
+#     write). Prefer PAT anyway so other workflows still run on release-please PRs.
 
 name: Main — CI, Release, Deploy
 
