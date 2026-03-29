@@ -3,7 +3,7 @@ locals {
   bot_name   = local.bot_config.name
   polly_arn  = "arn:aws:polly:${var.aws_region}:${var.aws_account_id}:lexicon/*"
 
- tags = {
+  tags = {
     MANAGED_BY       = "Terraform"
     ENVIRONMENT      = var.environment
     AWS_REGION       = var.aws_region
