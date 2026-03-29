@@ -1,74 +1,7 @@
 terraform {
   required_version = ">= 1.5.0"
 }
-locals {
-  # Load bot configuration
-  bot_config = jsondecode(file("${path.module}/../bot-config/insurance-config.json"))
-  bot_name   = local.bot_config.name
 
-  # Namespace for resource naming
-  namespace = "${var.aws_account_name}-${var.environment}-${local.bot_name}"
-
-  # Polly Lexicon ARN
-  polly_arn = "arn:aws:polly:${var.aws_region}:${var.aws_account_id}:lexicon/*"
-
-  # Extract all intents across locales
-  intents = flatten([
-    for locale, locale_data in local.bot_config.locales : [
-      for intent_name, intent in locale_data.intents : merge(intent, {
-        intent_name = intent_name
-        locale      = locale
-      })
-    ]
-  ])
-
-  # Filter intents that have a fulfillment Lambda
-  lambda_intents = [
-    for intent in local.intents : intent
-    if lookup(intent, "fulfillment_lambda_name", null) != null
-  ]
-
-  # Build Lambda map with config and artifact info
-  # lambdas = {
-  #   for intent in local.lambda_intents : intent.fulfillment_lambda_name => {
-  #     artifact_path        = "${path.module}/../../artifacts/${intent.fulfillment_lambda_name}.zip"
-  #     handler              = "index.handler"
-  #     runtime              = "nodejs24.x"
-  #     timeout              = lookup(intent.lambda_config, "timeout_ms", 3000) / 1000
-  #     memory_size          = 1024
-  #     description          = intent.description
-  #     environment_variables = {
-  #       INTENT_NAME = intent.fulfillment_lambda_name
-  #     }
-  #   }
-  # }
-
-  lambdas = {
-    for intent in local.lambda_intents : intent.fulfillment_lambda_name => {
-      s3_key      = "${intent.fulfillment_lambda_name}.zip"
-      handler     = "index.handler"
-      runtime     = "nodejs24.x"
-      timeout     = floor(lookup(intent.lambda_config, "timeout_ms", 3000) / 1000)
-      memory_size = 1024
-      description = intent.description
-
-      environment_variables = {
-        INTENT_NAME = intent.fulfillment_lambda_name
-      }
-    }
-  }
-
-  # List of Lambda keys (names)
-  //lambda_keys = keys(local.lambdas)
-
-  # Lex Lambda map for module input
-  # lex_lambda_keys = {
-  #   for k in local.lambda_keys : k => {
-  #     function_name = k
-  #     # add extra attributes if Lex module expects them
-  #   }
-  # }
-}
 
 # ============================================================================
 # ────────────────────────────── CLOUDWATCH LOG GROUPS ──────────────────────────────

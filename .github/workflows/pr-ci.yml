@@ -19,8 +19,8 @@ permissions:
 
 env:
   AWS_REGION: eu-west-2
-  TF_STATE_BUCKET: myhub-bot-dev-terraform-statefiles-bucket-eu-west-2
-  TF_LOCK_TABLE: terraform-state-lock
+  TF_STATE_BUCKET: debottam-learner-terraform-state-bucket       # Change to your bucket
+  TF_LOCK_TABLE: terraform-state-lock             # Change to your DynamoDB table
   TERRAFORM_VERSION: 1.5.7
   NODE_VERSION: 24
 

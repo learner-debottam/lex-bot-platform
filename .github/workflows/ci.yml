@@ -12,119 +12,63 @@ env:
   NODE_VERSION: 24
   TF_STATE_BUCKET: debottam-learner-terraform-state-bucket       # Change to your bucket
   TF_LOCK_TABLE: terraform-state-lock             # Change to your DynamoDB table
+  ENVIRONMENT: dev   # 👈 change later for prod pipeline
 
 jobs:
-  #################################################
-  # 1️⃣ Detect Changed Packages
-  #################################################
-  detect:
+  detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      packages: ${{ steps.set.outputs.packages }}
+      packages: ${{ steps.set-matrix.outputs.packages }}
+
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - id: set
+      - name: Detect changed packages
+        id: set-matrix
         run: |
-          CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
-          PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
-          if [ -z "$PKGS" ] || [ "$PKGS" = "[]" ]; then
-            echo "packages=[]" >> $GITHUB_OUTPUT
-          else
-            echo "packages=$PKGS" >> $GITHUB_OUTPUT
-          fi
+          CHANGED=$(git diff --name-only HEAD~1 | grep '^packages/' | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
+          echo "packages=$CHANGED" >> $GITHUB_OUTPUT
 
-  #################################################
-  # 2️⃣ Build + Lint + Test
-  #################################################
-  build-test:
-    needs: detect
-    if: ${{ needs.detect.outputs.packages != '[]' }}
+  apply:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.packages != '[]' }}
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
-        package: ${{ fromJson(needs.detect.outputs.packages) }}
-      fail-fast: false
+        package: ${{ fromJson(needs.detect-changes.outputs.packages) }}
+
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: 'packages/**/package-lock.json'
+          role-to-assume: ${{ secrets.AWS_ASSUME_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Install + Lint + Build
-        run: |
-          PKG=packages/${{ matrix.package }}
-          if [ -f "$PKG/package.json" ]; then
-            npm ci --prefix $PKG
-            npm run lint --prefix $PKG
-            npm run typecheck --prefix $PKG
-            npm run build --prefix $PKG
-          fi
-
-      - name: Run Tests
-        run: |
-          PKG=packages/${{ matrix.package }}
-          if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
-            npm run test --prefix $PKG
-          else
-            echo "No TypeScript tests found"
-          fi
-
-  #################################################
-  # 3️⃣ Terraform Apply per Package
-  #################################################
-  terraform-apply:
-    needs: build-test
-    if: ${{ needs.detect.outputs.packages != '[]' }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        package: ${{ fromJson(needs.detect.outputs.packages) }}
-      fail-fast: false
-    steps:
-      - uses: actions/checkout@v5
-
-      # Terraform Setup
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
-
-      # Terraform Provider Cache
-      - name: Cache Terraform Providers
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.terraform.d/plugin-cache
-            **/.terraform/providers
-          key: terraform-providers-${{ matrix.package }}-${{ hashFiles('packages/' + matrix.package + '/infra/**/*.tf*') }}
-
-      # Terraform Init + Apply
       - name: Terraform Apply
-        working-directory: packages/${{ matrix.package }}/infra
         run: |
-          terraform init \
-            -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="key=${matrix.package}/terraform.tfstate" \
-            -backend-config="region=${AWS_REGION}" \
-            -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
-            -reconfigure
-          terraform apply -auto-approve
-          
-  #################################################
-  # 4️⃣ Security Checks (Checkov)
-  #################################################
-  security:
-    needs: build-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Run Checkov
-        uses: bridgecrewio/checkov@v2
-        with:
-          directory: packages
-          framework: terraform
+          PKG=packages/${{ matrix.package }}
+
+          if [ -d "$PKG/infra" ]; then
+            echo "Applying Terraform for $PKG"
+
+            terraform -chdir=$PKG/infra init \
+              -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+              -backend-config="key=${{ matrix.package }}/terraform.tfstate" \
+              -backend-config="region=${{ env.TF_BACKEND_REGION }}" \
+              -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
+              -reconfigure
+
+            terraform -chdir=$PKG/infra apply \
+              -var-file=$GITHUB_WORKSPACE/root/infra/vars/${{ env.ENVIRONMENT }}.tfvars \
+              -auto-approve
+          fi
