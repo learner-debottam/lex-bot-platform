@@ -10,30 +10,38 @@ env:
   AWS_REGION: eu-west-2
   TERRAFORM_VERSION: 1.5.7
   NODE_VERSION: 24
-  TF_STATE_BUCKET: debottam-learner-terraform-state-bucket       # Change to your bucket
-  TF_LOCK_TABLE: terraform-state-lock             # Change to your DynamoDB table
-  ENVIRONMENT: dev   # 👈 change later for prod pipeline
+  TF_STATE_BUCKET: debottam-learner-terraform-state-bucket
+  TF_LOCK_TABLE: terraform-state-lock
+  ENVIRONMENT: dev   # 👈 change to prod for prod pipeline
 
 jobs:
+  #################################################
+  # Detect changed packages
+  #################################################
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
       packages: ${{ steps.set-matrix.outputs.packages }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Detect changed packages
         id: set-matrix
         run: |
           CHANGED=$(git diff --name-only HEAD~1 | grep '^packages/' | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
-          echo "packages=$CHANGED" >> $GITHUB_OUTPUT
+          if [ -z "$CHANGED" ]; then
+            echo "packages=[]" >> $GITHUB_OUTPUT
+          else
+            echo "packages=$CHANGED" >> $GITHUB_OUTPUT
 
+  #################################################
+  # Apply Terraform for changed packages
+  #################################################
   apply:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.packages != '[]' }}
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
         package: ${{ fromJson(needs.detect-changes.outputs.packages) }}
@@ -43,10 +51,12 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -57,18 +67,21 @@ jobs:
       - name: Terraform Apply
         run: |
           PKG=packages/${{ matrix.package }}
+          TFVARS_FILE=$GITHUB_WORKSPACE/infra/vars/${{ env.ENVIRONMENT }}.tfvars
 
-          if [ -d "$PKG/infra" ]; then
-            echo "Applying Terraform for $PKG"
+          if [ -d "$PKG/infra" ] && ls $PKG/infra/*.tf 1> /dev/null 2>&1; then
+            echo "Applying Terraform for $PKG using $TFVARS_FILE"
 
             terraform -chdir=$PKG/infra init \
               -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
               -backend-config="key=${{ matrix.package }}/terraform.tfstate" \
-              -backend-config="region=${{ env.TF_BACKEND_REGION }}" \
+              -backend-config="region=${{ env.AWS_REGION }}" \
               -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
               -reconfigure
 
             terraform -chdir=$PKG/infra apply \
-              -var-file=$GITHUB_WORKSPACE/infra/vars/${{ env.ENVIRONMENT }}.tfvars \
+              -var-file=$TFVARS_FILE \
               -auto-approve
+          else
+            echo "No Terraform files found in $PKG/infra. Skipping."
           fi
