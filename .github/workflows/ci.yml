@@ -23,12 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0   # ensures git diff works
+          fetch-depth: 0
 
       - name: Detect changed packages
         id: set-matrix
         run: |
-          # fallback for first commit / shallow checkout
+          #!/bin/bash
+          set -e
           if git rev-parse HEAD~1 >/dev/null 2>&1; then
             CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '^packages/' || true)
           else
@@ -37,16 +38,17 @@ jobs:
           fi
 
           PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
+
           if [ -z "$PKGS" ] || [ "$PKGS" = "[]" ]; then
             echo "packages=[]" >> $GITHUB_OUTPUT
           else
             echo "packages=$PKGS" >> $GITHUB_OUTPUT
+          fi
 
   apply:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.packages != '[]' }}
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
         package: ${{ fromJson(needs.detect-changes.outputs.packages) }}
@@ -57,8 +59,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -71,12 +71,11 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ASSUME_ROLE }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Terraform Init + Apply (only changed packages)
+      - name: Terraform Apply
         run: |
           PKG=packages/${{ matrix.package }}
           if [ -d "$PKG/infra" ]; then
             echo "Applying Terraform for $PKG"
-
             terraform -chdir=$PKG/infra init \
               -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
               -backend-config="key=${{ matrix.package }}/terraform.tfstate" \
@@ -87,6 +86,4 @@ jobs:
             terraform -chdir=$PKG/infra apply \
               -var-file=$GITHUB_WORKSPACE/infra/vars/${{ env.ENVIRONMENT }}.tfvars \
               -auto-approve
-          else
-            echo "No Terraform infra found in $PKG. Skipping."
           fi
