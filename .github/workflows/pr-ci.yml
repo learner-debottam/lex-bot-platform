@@ -118,7 +118,7 @@ jobs:
               -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
               -reconfigure
             terraform -chdir=$PKG/infra validate
-            terraform -chdir=$PKG/infra plan -out=${{ matrix.package }}-plan.tfplan
+            terraform -chdir=$PKG/infra plan -var-file=$GITHUB_WORKSPACE/root/infra/vars/dev.tfvars -out=insurance-bot-plan.tfplan
           fi
 
       - name: Upload Plan
