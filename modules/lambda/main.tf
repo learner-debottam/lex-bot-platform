@@ -16,10 +16,72 @@
 # - Environment variables are merged from global and per-function variables.
 # - VPC configuration is optional and only applied if subnet IDs and security groups are provided.
 # - Lambda functions have active X-Ray tracing enabled.
+# - Optional hardening (default on): SQS DLQ, code signing config, reserved concurrency, KMS for env.
 # - `prevent_destroy` ensures Lambda functions are not accidentally destroyed.
 # - `create_before_destroy` ensures safe updates.
 # - Tags can be applied both globally (`var.tags`) and per-function (`var.function_tags`).
 # ============================================================================
+
+locals {
+  lambda_has_nonempty_env = {
+    for k, fn in var.lambdas : k =>(
+      length(var.environment_variables) > 0 || length(fn.environment_variables) > 0
+    )
+  }
+}
+
+# AWS-managed key used to encrypt environment variables at rest (CKV_AWS_173 when env is set).
+data "aws_kms_key" "lambda_env" {
+  key_id = "alias/aws/lambda"
+}
+
+# Shared dead-letter queue for all functions in this module (CKV_AWS_116).
+resource "aws_sqs_queue" "lambda_dlq" {
+  count = var.lambda_hardening && length(var.lambdas) > 0 ? 1 : 0
+
+  name_prefix               = "lambda-dlq-"
+  message_retention_seconds = 1209600
+  tags                      = var.tags
+}
+
+# Code signing profile + config (CKV_AWS_272). UntrustedArtifactOnDeployment=Warn keeps unsigned S3 zips usable.
+resource "aws_signer_signing_profile" "lambda" {
+  count = var.lambda_hardening && length(var.lambdas) > 0 ? 1 : 0
+
+  platform_id = "AWSLambda-SHA384-ECDSA"
+  name_prefix = "lambda-signing-"
+}
+
+resource "aws_lambda_code_signing_config" "this" {
+  count = var.lambda_hardening && length(var.lambdas) > 0 ? 1 : 0
+
+  allowed_publishers {
+    signing_profile_version_arns = [aws_signer_signing_profile.lambda[0].version_arn]
+  }
+
+  policies {
+    untrusted_artifact_on_deployment = var.code_signing_untrusted_behavior
+  }
+}
+
+data "aws_iam_policy_document" "lambda_dlq" {
+  count = var.lambda_hardening && length(var.lambdas) > 0 ? 1 : 0
+
+  statement {
+    sid       = "LambdaDLQ"
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.lambda_dlq[0].arn]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_dlq" {
+  for_each = var.lambda_hardening && length(var.lambdas) > 0 ? var.lambdas : {}
+
+  name   = "${each.key}-dlq"
+  role   = aws_iam_role.lambda_role[each.key].id
+  policy = data.aws_iam_policy_document.lambda_dlq[0].json
+}
 
 # ============================================================================
 # IAM Trust Policy: Lambda → IAM Role
@@ -90,6 +152,19 @@ resource "aws_lambda_function" "this" {
 
   publish = true
 
+  reserved_concurrent_executions = var.lambda_hardening ? var.reserved_concurrent_executions : null
+
+  code_signing_config_arn = var.lambda_hardening && length(var.lambdas) > 0 ? aws_lambda_code_signing_config.this[0].arn : null
+
+  dynamic "dead_letter_config" {
+    for_each = var.lambda_hardening && length(var.lambdas) > 0 ? [1] : []
+    content {
+      target_arn = aws_sqs_queue.lambda_dlq[0].arn
+    }
+  }
+
+  kms_key_arn = var.lambda_hardening && local.lambda_has_nonempty_env[each.key] ? data.aws_kms_key.lambda_env.arn : null
+
   dynamic "environment" {
     for_each = (
       length(var.environment_variables) > 0 ||
@@ -120,9 +195,7 @@ resource "aws_lambda_function" "this" {
     mode = "Active"
   }
 
-  depends_on = [
-    var.lambda_log_group_arns
-  ]
+  depends_on = var.lambda_hardening && length(var.lambdas) > 0 ? [for k in keys(var.lambdas) : aws_iam_role_policy.lambda_dlq[k]] : []
 
   tags = merge(
     var.tags,

@@ -82,3 +82,9 @@ variable "lambda_functions" {
   }))
   default = {}
 }
+
+variable "lex_bot_alias_id" {
+  description = "Lex V2 bot alias ID for aws_lambda_permission.source_arn (AWS creates TSTALIASID as the default test alias for new bots)."
+  type        = string
+  default     = "TSTALIASID"
+}
