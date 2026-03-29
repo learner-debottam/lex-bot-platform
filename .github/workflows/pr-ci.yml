@@ -25,9 +25,6 @@ env:
   NODE_VERSION: 24
 
 jobs:
-  #################################################
-  # Detect changed packages
-  #################################################
   detect:
     runs-on: ubuntu-latest
     outputs:
@@ -35,11 +32,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 0   # important for HEAD~1 and merge detection
 
       - id: set
         run: |
-          CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
+          # Determine changed packages robustly
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '^packages/' || true)
+          else
+            git fetch origin main
+            CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
+          fi
+
           PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
           if [ -z "$PKGS" ] || [ "$PKGS" = "[]" ]; then
             echo "packages=[]" >> $GITHUB_OUTPUT
@@ -47,13 +51,11 @@ jobs:
             echo "packages=$PKGS" >> $GITHUB_OUTPUT
           fi
 
-  #################################################
-  # Build + Lint + Test + Terraform Plan
-  #################################################
   build-test:
     needs: detect
     if: ${{ needs.detect.outputs.packages != '[]' }}
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         package: ${{ fromJson(needs.detect.outputs.packages) }}
@@ -61,20 +63,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-      # Optional TF debug
       - name: Enable TF Debug
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.enable_tf_debug == 'true' }}
         run: echo "TF_LOG=DEBUG" >> $GITHUB_ENV
 
-      # AWS OIDC Role
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ASSUME_ROLE }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Node setup + build
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -98,7 +99,6 @@ jobs:
             npm run test --prefix $PKG
           fi
 
-      # Terraform
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
@@ -106,7 +106,6 @@ jobs:
       - name: Terraform Init + Validate + Plan
         run: |
           PKG=packages/${{ matrix.package }}
-          TFVARS_FILE=$GITHUB_WORKSPACE/infra/vars/dev.tfvars
           if [ -d "$PKG/infra" ] && ls $PKG/infra/*.tf 1> /dev/null 2>&1; then
             terraform -chdir=$PKG/infra fmt -check
             terraform -chdir=$PKG/infra init \
@@ -116,7 +115,7 @@ jobs:
               -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
               -reconfigure
             terraform -chdir=$PKG/infra validate
-            terraform -chdir=$PKG/infra plan -var-file=$TFVARS_FILE -out=${{ matrix.package }}-plan.tfplan
+            terraform -chdir=$PKG/infra plan -var-file=$GITHUB_WORKSPACE/infra/vars/${{ env.ENVIRONMENT }}.tfvars -out=${{ matrix.package }}-plan.tfplan
           fi
 
       - name: Upload Plan
