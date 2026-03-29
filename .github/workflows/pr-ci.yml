@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  id-token: write   # REQUIRED for OIDC
+  id-token: write
 
 env:
   AWS_REGION: eu-west-2
@@ -23,6 +23,7 @@ env:
   TF_LOCK_TABLE: terraform-state-lock
   TERRAFORM_VERSION: 1.5.7
   NODE_VERSION: 24
+  ENVIRONMENT: dev   # change for other envs
 
 jobs:
   detect:
@@ -32,11 +33,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0   # important for HEAD~1 and merge detection
+          fetch-depth: 0
 
       - id: set
+        name: Detect changed packages
         run: |
-          # Determine changed packages robustly
+          #!/bin/bash
+          set -e
+          # fallback for first commit / shallow checkout
           if git rev-parse HEAD~1 >/dev/null 2>&1; then
             CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '^packages/' || true)
           else
@@ -45,6 +49,7 @@ jobs:
           fi
 
           PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
+
           if [ -z "$PKGS" ] || [ "$PKGS" = "[]" ]; then
             echo "packages=[]" >> $GITHUB_OUTPUT
           else
@@ -55,7 +60,6 @@ jobs:
     needs: detect
     if: ${{ needs.detect.outputs.packages != '[]' }}
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
         package: ${{ fromJson(needs.detect.outputs.packages) }}
@@ -63,10 +67,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
-      - name: Enable TF Debug
+      - name: Enable Terraform Debug
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.enable_tf_debug == 'true' }}
         run: echo "TF_LOG=DEBUG" >> $GITHUB_ENV
 
@@ -115,10 +117,12 @@ jobs:
               -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
               -reconfigure
             terraform -chdir=$PKG/infra validate
-            terraform -chdir=$PKG/infra plan -var-file=$GITHUB_WORKSPACE/infra/vars/${{ env.ENVIRONMENT }}.tfvars -out=${{ matrix.package }}-plan.tfplan
+            terraform -chdir=$PKG/infra plan \
+              -var-file=$GITHUB_WORKSPACE/infra/vars/${{ env.ENVIRONMENT }}.tfvars \
+              -out=${{ matrix.package }}-plan.tfplan
           fi
 
-      - name: Upload Plan
+      - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.package }}-plan
