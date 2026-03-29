@@ -26,11 +26,11 @@ variable "bot_config" {
   type        = any
 }
 
-variable "lambda_arns" {
-  description = "Optional map of Lambda ARNs keyed by logical names used in bot_config (e.g., fulfillment_lambda_name)"
-  type        = map(string)
-  default     = {}
-}
+# variable "lambda_arns" {
+#   description = "Optional map of Lambda ARNs keyed by logical names used in bot_config (e.g., fulfillment_lambda_name)"
+#   type        = map(string)
+#   default     = {}
+# }
 
 variable "polly_arn" {
   description = "ARN of polly"
@@ -44,13 +44,13 @@ variable "cloudwatch_log_group_arn" {
   default     = null
 }
 
-variable "lambda_functions" {
-  type = map(object({
-    function_name = string
-    arn           = string
-  }))
-  description = "Map of Lambda function objects for Lex intents"
-}
+# variable "lambda_functions" {
+#   type = map(object({
+#     function_name = string
+#     arn           = string
+#   }))
+#   description = "Map of Lambda function objects for Lex intents"
+# }
 
 variable "lexv2_bot_role_name" {
   description = "Name of the IAM role for Lex V2 bot"
@@ -66,4 +66,19 @@ variable "tags" {
 variable "create_version" {
   type    = bool
   default = false
+}
+
+variable "lambda_arns" {
+  description = "Optional map of Lambda ARNs keyed by logical names used in bot_config"
+  type        = map(string)
+  default     = {}
+}
+
+variable "lambda_functions" {
+  description = "Optional map of Lambda function objects for Lex intents"
+  type = map(object({
+    function_name = string
+    arn           = string
+  }))
+  default = {}
 }

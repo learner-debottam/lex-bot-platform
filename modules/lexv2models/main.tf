@@ -105,8 +105,12 @@ resource "aws_lexv2models_intent" "intents" {
   name        = each.value.lex_id
   description = each.value.description
 
+  # dynamic "fulfillment_code_hook" {
+  #   for_each = each.value.fulfillment_lambda_name != null ? [1] : []
+  #   content { enabled = true }
+  # }
   dynamic "fulfillment_code_hook" {
-    for_each = each.value.fulfillment_lambda_name != null ? [1] : []
+    for_each = each.value.fulfillment_lambda_name != null && length(var.lambda_arns) > 0 ? [1] : []
     content { enabled = true }
   }
 
@@ -116,7 +120,8 @@ resource "aws_lexv2models_intent" "intents" {
   }
 
   dynamic "initial_response_setting" {
-    for_each = each.value.fulfillment_lambda_name != null ? [1] : []
+    for_each = each.value.fulfillment_lambda_name != null && length(var.lambda_arns) > 0 ? [1] : []
+
     content {
       code_hook {
         active                      = true

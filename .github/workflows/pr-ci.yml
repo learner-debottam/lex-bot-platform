@@ -4,13 +4,25 @@ on:
   pull_request:
     branches:
       - "*"
+  workflow_dispatch:
+    inputs:
+      enable_tf_debug:
+        description: "Enable Terraform debug logging"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  pull-requests: write
+  id-token: write   # REQUIRED for OIDC
 
 env:
   AWS_REGION: eu-west-2
-  TF_VERSION: 1.14.7
+  TF_STATE_BUCKET: debottam-learner-terraform-state-bucket       # Change to your bucket
+  TF_LOCK_TABLE: terraform-state-lock             # Change to your DynamoDB table
+  TERRAFORM_VERSION: 1.5.7
+  NODE_VERSION: 24
 
 jobs:
   detect:
@@ -19,52 +31,98 @@ jobs:
       packages: ${{ steps.set.outputs.packages }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - id: set
         run: |
-          CHANGED=$(git diff --name-only origin/main HEAD | grep packages || true)
+          CHANGED=$(git diff --name-only origin/main HEAD | grep '^packages/' || true)
           PKGS=$(echo "$CHANGED" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
-          echo "packages=$PKGS" >> $GITHUB_OUTPUT
+          if [ -z "$PKGS" ] || [ "$PKGS" = "[]" ]; then
+            echo "packages=[]" >> $GITHUB_OUTPUT
+          else
+            echo "packages=$PKGS" >> $GITHUB_OUTPUT
+          fi
 
-  build-test-plan:
+  build-test:
     needs: detect
+    if: ${{ needs.detect.outputs.packages != '[]' }}
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         package: ${{ fromJson(needs.detect.outputs.packages) }}
+      fail-fast: false
 
     steps:
       - uses: actions/checkout@v5
+
+      #################################################
+      # Enable TF Debug (optional)
+      #################################################
+      - name: Enable TF Debug
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.enable_tf_debug == 'true' }}
+        run: echo "TF_LOG=DEBUG" >> $GITHUB_ENV
+
+      #################################################
+      # AWS OIDC Role
+      #################################################
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ASSUME_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      #################################################
+      # Node Build
+      #################################################
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'packages/**/package-lock.json'
 
-      - name: Install / Build / Test
+      - name: Install + Lint + Build
         run: |
           PKG=packages/${{ matrix.package }}
-
           if [ -f "$PKG/package.json" ]; then
             npm ci --prefix $PKG
-            npm run build --prefix $PKG || true
-
-            if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
-              npm run test --prefix $PKG
-            else
-              echo "No tests found"
-            fi
+            npm run lint --prefix $PKG
+            npm run typecheck --prefix $PKG
+            npm run build --prefix $PKG
           fi
 
-      - name: Terraform Plan (if exists)
+      - name: Run Tests
         run: |
-          if [ -d "packages/${{ matrix.package }}/infra" ]; then
-            terraform -chdir=packages/${{ matrix.package }}/infra init
-            terraform -chdir=packages/${{ matrix.package }}/infra plan
+          PKG=packages/${{ matrix.package }}
+          if ls $PKG/test/*.ts 1> /dev/null 2>&1; then
+            npm run test --prefix $PKG
           fi
 
-  deploy-dev:
-    needs: build-test-plan
-    uses: ./.github/workflows/deploy-environment.yml
-    with:
-      environment-to-deploy: dev
-      runner-name: ubuntu-latest
-    secrets: inherit
+      #################################################
+      # Terraform
+      #################################################
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init + Validate + Plan
+        run: |
+          PKG=packages/${{ matrix.package }}
+          if [ -d "$PKG/infra" ] && ls $PKG/infra/*.tf 1> /dev/null 2>&1; then
+            terraform -chdir=$PKG/infra fmt -check
+            terraform -chdir=$PKG/infra init \
+              -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+              -backend-config="key=${{ matrix.package }}/terraform.tfstate" \
+              -backend-config="region=${{ env.AWS_REGION }}" \
+              -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
+              -reconfigure
+            terraform -chdir=$PKG/infra validate
+            terraform -chdir=$PKG/infra plan -var-file=$GITHUB_WORKSPACE/infra/vars/dev.tfvars -out=insurance-bot-plan.tfplan
+          fi
+
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}-plan
+          path: packages/${{ matrix.package }}/infra/${{ matrix.package }}-plan.tfplan

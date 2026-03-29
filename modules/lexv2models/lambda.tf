@@ -13,6 +13,15 @@
 # - principal is always lex.amazonaws.com to allow Lex to invoke the function.
 # - Fine-grained permissions are preferred over broad managed policies.
 # ============================================================================
+# resource "aws_lambda_permission" "this" {
+#   for_each = var.lambda_functions
+
+#   statement_id  = "AllowLexInvoke-${each.key}"
+#   action        = "lambda:InvokeFunction"
+#   function_name = each.value.arn
+#   principal     = "lex.amazonaws.com"
+# }
+
 resource "aws_lambda_permission" "this" {
   for_each = var.lambda_functions
 

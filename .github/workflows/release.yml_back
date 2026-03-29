@@ -10,17 +10,14 @@ permissions:
   pull-requests: write
 
 env:
-  AWS_REGION: eu-west-2
-  TF_VERSION: 1.14.7
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-
   #################################################
-  # Versioning (Monorepo)
+  # Release (Versioning)
   #################################################
   release:
     runs-on: ubuntu-latest
-
     outputs:
       released: ${{ steps.release.outputs.releases_created }}
 
@@ -41,7 +38,7 @@ jobs:
           monorepo-tags: true
 
   #################################################
-  # DEV
+  # Deploy DEV
   #################################################
   deploy-dev:
     needs: release
@@ -53,7 +50,7 @@ jobs:
     secrets: inherit
 
   #################################################
-  # TEST (manual approval via GitHub Environment)
+  # Deploy TEST
   #################################################
   deploy-test:
     needs: deploy-dev
@@ -62,10 +59,9 @@ jobs:
       environment-to-deploy: test
       runner-name: ubuntu-latest
     secrets: inherit
-    environment: test
 
   #################################################
-  # PRE-PROD
+  # Deploy PRE-PROD
   #################################################
   deploy-preprod:
     needs: deploy-test
@@ -74,10 +70,9 @@ jobs:
       environment-to-deploy: pre-prod
       runner-name: ubuntu-latest
     secrets: inherit
-    environment: pre-prod
 
   #################################################
-  # PROD
+  # Deploy PROD (manual approval via environment)
   #################################################
   deploy-prod:
     needs: deploy-preprod
@@ -86,4 +81,3 @@ jobs:
       environment-to-deploy: prod
       runner-name: ubuntu-latest
     secrets: inherit
-    environment: prod

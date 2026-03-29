@@ -1,8 +1,10 @@
 {
   "name": "pizza-order-bot",
   "description": "Pizza ordering bot",
+  "type": "Bot",
   "idle_session_ttl": 600,
-
+  "child_directed": false,
+  
   "locales": {
     "en_GB": {
       "description": "British English locale",
@@ -11,22 +13,39 @@
       "slot_types": {
         "PizzaSize": {
           "description": "Size of pizza",
-          "values": ["Small", "Medium", "Large", "Extra Large"]
+          "value_selection_strategy": "ExpandValues",
+          "values": [
+            { "value": "Small" },
+            { "value": "Medium" },
+            { "value": "Large" },
+            { "value": "Extra Large" }
+          ]
         },
         "PizzaTopping": {
           "description": "Pizza toppings",
-          "values": ["Pepperoni", "Mushroom", "Cheese", "Veggie", "Hawaiian"]
+          "value_selection_strategy": "ExpandValues",
+          "values": [
+            { "value": "Pepperoni" },
+            { "value": "Mushroom" },
+            { "value": "Cheese" },
+            { "value": "Veggie" },
+            { "value": "Hawaiian" }
+          ]
         },
         "Crust": {
           "description": "Type of crust",
-          "values": ["Thin", "Thick", "Stuffed"]
+          "value_selection_strategy": "ExpandValues",
+          "values": [
+            { "value": "Thin" },
+            { "value": "Thick" },
+            { "value": "Stuffed" }
+          ]
         }
       },
 
       "intents": {
         "OrderPizza": {
           "intent_type": "Normal",
-
           "description": "Order a pizza",
 
           "initial_response": {

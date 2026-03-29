@@ -1,8 +1,5 @@
-locals {
-  bot_config = jsondecode(file("${path.module}/../bot-config/pizza-order-config.json"))
-  bot_name   = local.bot_config.name
-  polly_arn  = "arn:aws:polly:${var.aws_region}:${var.aws_account_id}:lexicon/*"
-
+terraform {
+  required_version = ">= 1.5.0"
 }
 
 module "logs" {

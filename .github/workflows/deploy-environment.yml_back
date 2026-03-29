@@ -1,0 +1,68 @@
+name: Deploy Environment
+
+on:
+  workflow_call:
+    inputs:
+      environment-to-deploy:
+        required: true
+        type: string
+      runner-name:
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  #################################################
+  # Terraform Plan + Scan
+  #################################################
+  plan:
+    runs-on: ${{ inputs.runner-name }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+
+      - name: Terraform Plan
+        run: |
+          terraform -chdir=infra init
+          terraform -chdir=infra validate
+          terraform -chdir=infra plan \
+            -var-file="vars/${{ inputs.environment-to-deploy }}.tfvars" \
+            -out=tfplan
+
+      - name: Convert Plan
+        run: terraform -chdir=infra show -json tfplan > tfplan.json
+
+      - name: Security Scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          framework: terraform_plan
+          file: tfplan.json
+          quiet: true
+
+  #################################################
+  # Deploy
+  #################################################
+  deploy:
+    runs-on: ${{ inputs.runner-name }}
+    needs: plan
+    environment: ${{ inputs.environment-to-deploy }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-region: eu-west-2
+          role-to-assume: ${{ secrets[format('AWS_{0}_ROLE', inputs.environment-to-deploy)] }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Deploy
+        run: bash scripts/deploy.sh ${{ inputs.environment-to-deploy }}
