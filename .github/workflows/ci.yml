@@ -69,6 +69,6 @@ jobs:
               -reconfigure
 
             terraform -chdir=$PKG/infra apply \
-              -var-file=$GITHUB_WORKSPACE/root/infra/vars/${{ env.ENVIRONMENT }}.tfvars \
+              -var-file=$GITHUB_WORKSPACE/infra/vars/${{ env.ENVIRONMENT }}.tfvars \
               -auto-approve
           fi
