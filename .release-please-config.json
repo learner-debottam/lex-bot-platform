@@ -3,7 +3,7 @@
     "packages/insurance-bot": {
       "release-type": "node"
     },
-    "packages/pizza-order": {
+    "packages/pizza-order-bot": {
       "release-type": "terraform"
     }
   }
