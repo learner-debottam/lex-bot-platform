@@ -92,7 +92,7 @@ data "aws_iam_policy_document" "lambda_assume_role" {
 
   statement {
     effect = "Allow"
-    principals {kms_master_key_id
+    principals {
       type        = "Service"
       identifiers = ["lambda.amazonaws.com"]
     }
