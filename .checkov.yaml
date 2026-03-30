@@ -5,6 +5,6 @@
 framework:
   - terraform
 
-skip-check: CKV_AWS_18, CKV_AWS_338 # example: allow public S3 if needed; use commas for multiple IDs
+skip-check: CKV_AWS_18,CKV_AWS_27 # example: allow public S3 if needed; use commas for multiple IDs
 
 quiet: true
