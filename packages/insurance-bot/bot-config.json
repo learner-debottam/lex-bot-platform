@@ -1,5 +1,5 @@
 {
-  "name": "insurance-bot-v1",
+  "name": "insurance-bot",
   "description": "Insurance claims and policy management bot",
   "type": "Bot",
   "idle_session_ttl": 900,
