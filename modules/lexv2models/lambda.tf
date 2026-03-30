@@ -28,16 +28,6 @@ locals {
   )
 }
 
-# resource "aws_lambda_permission" "this" {
-#   for_each = var.lambda_functions
-
-#   statement_id  = "AllowLexInvoke-${each.key}"
-#   action        = "lambda:InvokeFunction"
-#   function_name = each.value.arn
-#   principal     = "lex.amazonaws.com"
-#   source_arn    = local.lex_bot_alias_source_arn
-# }
-
 resource "aws_lambda_permission" "this" {
   for_each = var.lambda_functions
 
