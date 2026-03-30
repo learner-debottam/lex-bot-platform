@@ -21,7 +21,7 @@ data "aws_region" "current" {}
 locals {
   lex_bot_alias_source_arn = format(
     "arn:aws:lex:%s:%s:bot-alias/%s/%s",
-    data.aws_region.current.name,
+    data.aws_region.current.id,
     data.aws_caller_identity.current.account_id,
     aws_lexv2models_bot.this.id,
     var.lex_bot_alias_id
