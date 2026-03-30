@@ -14,6 +14,9 @@
 # | prevent_destroy             | bool / false                    | Enable prevent_destroy for critical environments             |
 # | lambda_log_group_arns       | map(string) / {}                | Map of Lambda log group ARNs                                  |
 # | lambda_artifacts_bucket     | string                          | S3 bucket containing Lambda deployment artifacts             |
+# | lambda_hardening            | bool / true                     | DLQ, code signing, reserved concurrency, KMS for env vars    |
+# | reserved_concurrent_executions | number / -1                  | Per-function reserved concurrency when hardening is on       |
+# | code_signing_untrusted_behavior | Warn / Enforce             | Code signing policy for unsigned deployment packages         |
 #
 # Notes:
 # - `lambdas` object supports optional fields: `environment_variables`, `source_code_hash`.
@@ -77,4 +80,27 @@ variable "lambda_log_group_arns" {
 variable "lambda_artifacts_bucket" {
   description = "S3 bucket where Lambda artifacts are stored"
   type        = string
+}
+
+variable "lambda_hardening" {
+  description = "When true, attach DLQ, code signing (untrusted deployments = Warn), reserved concurrency, and KMS for env vars — satisfies common Checkov Lambda rules (CKV_AWS_115/116/173/272)."
+  type        = bool
+  default     = true
+}
+
+variable "reserved_concurrent_executions" {
+  description = "Per-function reserved concurrency (-1 = no dedicated cap / use shared pool per AWS provider docs)."
+  type        = number
+  default     = -1
+}
+
+variable "code_signing_untrusted_behavior" {
+  description = "Lambda code signing policy for unsigned or untrusted artifacts: Warn (allows deploy) or Enforce."
+  type        = string
+  default     = "Warn"
+
+  validation {
+    condition     = contains(["Warn", "Enforce"], var.code_signing_untrusted_behavior)
+    error_message = "Must be Warn or Enforce."
+  }
 }

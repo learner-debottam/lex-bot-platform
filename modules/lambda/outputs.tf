@@ -65,3 +65,8 @@ output "functions" {
     }
   }
 }
+
+output "dead_letter_queue_arn" {
+  description = "SQS ARN used as async failure DLQ when lambda_hardening is enabled"
+  value       = var.lambda_hardening && length(var.lambdas) > 0 ? aws_sqs_queue.lambda_dlq[0].arn : null
+}

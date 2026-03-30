@@ -267,7 +267,8 @@ jobs:
           framework: terraform
           config_file: .checkov.yaml
           quiet: true
-          soft_fail: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.checkov_soft_fail == 'true' }}
+          # Only pass when true; passing boolean false becomes invalid `--soft_fail=False` in the action.
+          soft_fail: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.checkov_soft_fail == 'true' && 'true' || '' }}
 
       - name: Terraform init / validate / plan
         shell: bash

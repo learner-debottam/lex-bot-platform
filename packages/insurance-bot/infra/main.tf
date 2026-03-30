@@ -11,7 +11,7 @@ terraform {
 module "lex_logs" {
   source            = "../../../modules/cloudwatch-log-group"
   name              = "/aws/lex/${local.bot_name}"
-  retention_in_days = 30
+  retention_in_days = 720
   prevent_destroy   = var.environment == "prod"
 }
 
@@ -21,7 +21,7 @@ module "lambda_logs" {
   for_each = local.lambdas
 
   name              = "/aws/lambda/${each.key}"
-  retention_in_days = 30
+  retention_in_days = 720
   prevent_destroy   = var.environment == "prod"
 }
 
