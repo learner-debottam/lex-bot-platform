@@ -38,7 +38,7 @@ data "aws_kms_key" "lambda_env" {
 # Shared dead-letter queue for all functions in this module (CKV_AWS_116).
 resource "aws_sqs_queue" "lambda_dlq" {
   count = var.lambda_hardening && length(var.lambdas) > 0 ? 1 : 0
-
+  kms_key_arn = var.lambda_hardening && local.lambda_has_nonempty_env[each.key] ? data.aws_kms_key.lambda_env.arn : null
   name_prefix               = "lambda-dlq-"
   message_retention_seconds = 1209600
   tags                      = var.tags
