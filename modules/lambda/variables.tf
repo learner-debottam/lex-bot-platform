@@ -36,6 +36,7 @@ variable "lambdas" {
     description           = string
     environment_variables = optional(map(string), {})
     source_code_hash      = optional(string)
+    kms_key_arn           = string
   }))
 }
 
@@ -82,11 +83,11 @@ variable "lambda_artifacts_bucket" {
   type        = string
 }
 
-variable "lambda_hardening" {
-  description = "When true, attach DLQ, code signing (untrusted deployments = Warn), reserved concurrency, and KMS for env vars — satisfies common Checkov Lambda rules (CKV_AWS_115/116/173/272)."
-  type        = bool
-  default     = true
-}
+# variable "lambda_hardening" {
+#   description = "When true, attach DLQ, code signing (untrusted deployments = Warn), reserved concurrency, and KMS for env vars — satisfies common Checkov Lambda rules (CKV_AWS_115/116/173/272)."
+#   type        = bool
+#   default     = true
+# }
 
 variable "reserved_concurrent_executions" {
   description = "Per-function reserved concurrency (-1 = no dedicated cap / use shared pool per AWS provider docs)."
@@ -94,13 +95,13 @@ variable "reserved_concurrent_executions" {
   default     = -1
 }
 
-variable "code_signing_untrusted_behavior" {
-  description = "Lambda code signing policy for unsigned or untrusted artifacts: Warn (allows deploy) or Enforce."
-  type        = string
-  default     = "Warn"
+# variable "code_signing_untrusted_behavior" {
+#   description = "Lambda code signing policy for unsigned or untrusted artifacts: Warn (allows deploy) or Enforce."
+#   type        = string
+#   default     = "Warn"
 
-  validation {
-    condition     = contains(["Warn", "Enforce"], var.code_signing_untrusted_behavior)
-    error_message = "Must be Warn or Enforce."
-  }
-}
+#   validation {
+#     condition     = contains(["Warn", "Enforce"], var.code_signing_untrusted_behavior)
+#     error_message = "Must be Warn or Enforce."
+#   }
+# }

@@ -6,7 +6,7 @@ module "logs" {
   source = "../../../modules/cloudwatch-log-group"
 
   name              = "/aws/lex/${local.bot_name}"
-  retention_in_days = 731
+  retention_in_days = 365
   prevent_destroy   = var.environment == "prod"
 }
 
