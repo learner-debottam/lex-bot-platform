@@ -44,7 +44,7 @@ data "aws_iam_policy_document" "lambda_assume_role" {
 # Core execution role for Lambda functions with basic execution permissions.
 resource "aws_iam_role" "lambda_role" {
   for_each           = var.lambdas
-  name               = "${replace(each.key, "_", "-")}-lambda-role"
+  name               = "${each.key.namespace}-${replace(each.key, "_", "-")}-lambda-role"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume_role[each.key].json
   tags               = var.tags
 }
