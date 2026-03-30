@@ -17,13 +17,15 @@ locals {
   ]
   lambdas = {
     for intent in local.lambda_intents : intent.fulfillment_lambda_name => {
-      s3_key      = "${intent.fulfillment_lambda_name}.zip"
-      handler     = "index.handler"
-      runtime     = "nodejs24.x"
-      timeout     = floor(lookup(intent.lambda_config, "timeout_ms", 3000) / 1000)
-      memory_size = 1024
-      description = intent.description
-
+      description                    = intent.description
+      handler                        = "index.handler"
+      runtime                        = "nodejs24.x"
+      timeout                        = floor(lookup(intent.lambda_config, "timeout_ms", 3000) / 1000)
+      memory_size                    = 1024
+      kms_key_arn                    = null
+      s3_key                         = "${intent.fulfillment_lambda_name}.zip"
+      s3_bucket                      = var.s3_bucket
+      reserved_concurrent_executions = -1
       environment_variables = {
         INTENT_NAME = intent.fulfillment_lambda_name
       }

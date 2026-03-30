@@ -19,7 +19,7 @@ variable "aws_account_name" {
   type        = string
 }
 
-variable "lambda_artifacts_bucket" {
+variable "s3_bucket" {
   description = "S3 bucket for Lambda artifacts"
   type        = string
 }

@@ -33,7 +33,7 @@ module "lambda" {
   source                  = "../../../modules/lambda"
   lambdas                 = local.lambdas
   prevent_destroy         = var.environment == "prod"
-  lambda_artifacts_bucket = var.lambda_artifacts_bucket # ✅ add this
+  lambda_artifacts_bucket = var.s3_bucket # ✅ add this
 
   # Map each Lambda to its CloudWatch log group ARN
   lambda_log_group_arns = {
