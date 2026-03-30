@@ -80,7 +80,7 @@ resource "aws_lambda_function" "this" {
   memory_size                    = each.value.memory_size
   kms_key_arn                    = each.value.kms_key_arn
   s3_key                         = each.value.s3_key
-  s3_bucket                      = each.value.s3_bucket //var.lambda_artifacts_bucket
+  s3_bucket                      = each.value.lambda_artifacts_bucket //var.lambda_artifacts_bucket
   reserved_concurrent_executions = each.value.reserved_concurrent_executions
   source_code_hash               = lookup(each.value, "source_code_hash", null)
   publish                        = true

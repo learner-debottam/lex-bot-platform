@@ -37,6 +37,7 @@ variable "lambdas" {
     environment_variables = optional(map(string), {})
     source_code_hash      = optional(string)
     kms_key_arn           = string
+    reserved_concurrent_executions = number
   }))
 }
 
