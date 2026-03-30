@@ -28,16 +28,17 @@
 variable "lambdas" {
   description = "Map of Lambda configurations"
   type = map(object({
-    s3_key                = string
+    description           = string
     handler               = string
     runtime               = string
     timeout               = number
     memory_size           = number
-    description           = string
-    environment_variables = optional(map(string), {})
-    source_code_hash      = optional(string)
     kms_key_arn           = string
+    s3_key                = string
+    lambda_artifacts_bucket = string
     reserved_concurrent_executions = number
+    source_code_hash      = optional(string)
+    environment_variables = optional(map(string), {})
   }))
 }
 
