@@ -141,6 +141,14 @@ jobs:
             fi
           fi
 
+          echo "::group::Changed files"
+          if [ -n "${CHANGED_FILES}" ]; then
+            printf '%s\n' "${CHANGED_FILES}"
+          else
+            echo "(none)"
+          fi
+          echo "::endgroup::"
+
           if [ "${PACKAGES_JSON}" = "[]" ]; then
             echo "matrix_empty=true" >> "$GITHUB_OUTPUT"
           else
@@ -200,6 +208,14 @@ jobs:
 
           echo "packages=${PACKAGES_JSON}"
           echo "terraform_matrix=${TF_MATRIX}"
+          echo "tf_global_change=${TF_GLOBAL_CHANGE}"
+          echo "::group::Terraform package slugs"
+          if [ -n "${TF_SLUGS}" ]; then
+            printf '%s\n' "${TF_SLUGS}"
+          else
+            echo "(none)"
+          fi
+          echo "::endgroup::"
 
   node-ci:
     name: Node — ${{ matrix.package }}
