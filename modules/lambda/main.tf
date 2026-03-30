@@ -49,7 +49,7 @@ resource "aws_signer_signing_profile" "lambda" {
   count = var.lambda_hardening && length(var.lambdas) > 0 ? 1 : 0
 
   platform_id = "AWSLambda-SHA384-ECDSA"
-  name_prefix = "lambda-signing-"
+  name_prefix = "lambda_signing_"
 }
 
 resource "aws_lambda_code_signing_config" "this" {
