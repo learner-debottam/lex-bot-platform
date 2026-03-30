@@ -195,8 +195,6 @@ resource "aws_lambda_function" "this" {
     mode = "Active"
   }
 
-  depends_on = var.lambda_hardening && length(var.lambdas) > 0 ? [for k in keys(var.lambdas) : aws_iam_role_policy.lambda_dlq[k]] : []
-
   tags = merge(
     var.tags,
     var.function_tags
