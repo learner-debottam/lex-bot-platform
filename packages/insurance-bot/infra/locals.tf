@@ -1,7 +1,5 @@
 locals {
-  // bot_config = jsondecode(file("${path.module}/../bot-config/insurance-config.json"))
   bot_config = jsondecode(file("${path.module}/../bot-config.json"))
-  //bot_config = jsondecode(file("${path.module}/insurance-config.json"))
   bot_name  = local.bot_config.name
   namespace = "${var.aws_account_name}-${var.environment}-${local.bot_name}"
   polly_arn = "arn:aws:polly:${var.aws_region}:${var.aws_account_id}:lexicon/*"
