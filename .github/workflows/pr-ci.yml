@@ -128,8 +128,26 @@ jobs:
           fi
 
           # Only schedule Terraform work when a package contains root Terraform files
+          TF_GLOBAL_CHANGE="false"
+          # If shared Terraform modules or tfvars change, we may need to re-plan every package that has Terraform.
+          while IFS= read -r f; do
+            [ -z "${f}" ] && continue
+            case "${f}" in
+              modules/*|infra/vars/*) TF_GLOBAL_CHANGE="true" ;;
+            esac
+          done <<< "${CHANGED_FILES}"
+
           TF_SLUGS=""
-          if [ "${PACKAGES_JSON}" != "[]" ]; then
+          if [ "${TF_GLOBAL_CHANGE}" = "true" ]; then
+            # Build the full Terraform package list from the repo itself.
+            for dir in packages/*; do
+              [ -d "${dir}" ] || continue
+              slug="$(basename "${dir}")"
+              if compgen -G "packages/${slug}/infra/*.tf" > /dev/null; then
+                TF_SLUGS="${TF_SLUGS}${slug}"$'\n'
+              fi
+            done
+          elif [ "${PACKAGES_JSON}" != "[]" ]; then
             while IFS= read -r slug; do
               [ -z "${slug}" ] && continue
               if compgen -G "packages/${slug}/infra/*.tf" > /dev/null; then
