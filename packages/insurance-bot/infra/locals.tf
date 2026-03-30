@@ -17,6 +17,7 @@ locals {
   ]
   lambdas = {
     for intent in local.lambda_intents : intent.fulfillment_lambda_name => {
+      namespace                      = local.namespace
       description                    = intent.description
       handler                        = "index.handler"
       runtime                        = "nodejs24.x"

@@ -28,6 +28,7 @@
 variable "lambdas" {
   description = "Map of Lambda configurations"
   type = map(object({
+    namespace                      = string
     description                    = string
     handler                        = string
     runtime                        = string
